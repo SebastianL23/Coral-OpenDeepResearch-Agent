@@ -90,60 +90,55 @@ Execute this workflow continuously to serve research requests from other agents.
 
 async def main():
     max_retries = 300
-
     for attempt in range(max_retries):
-        client = MultiServerMCPClient(
-            connections={
-                "coral": {
-                    "transport": "sse",
-                    "url": MCP_SERVER_URL,
-                    "timeout": 300,
-                    "sse_read_timeout": 300,
-                }
-            }
-        )
         try:
-            logger.info(f"Attempt {attempt + 1}: connecting to MCP at {MCP_SERVER_URL}")
-            coral_tools = await client.get_tools()
-            agent_tools = [
-                Tool(
-                    name="open_deepresearch",
-                    func=None,
-                    coroutine=odr_tool_async,
-                    description="Generates a comprehensive research report on a given topic using OpenDeepResearch. Returns the complete research report content with introduction, main body sections with research findings, and conclusions with structured elements.",
-                    args_schema={
-                        "properties": {
-                            "topic": {
-                                "type": "string",
-                                "description": "The topic for the research report"
-                            }
+            async with MultiServerMCPClient(
+                connections={
+                    "coral": {
+                        "transport": "sse",
+                        "url": MCP_SERVER_URL,
+                        "timeout": 300,
+                        "sse_read_timeout": 300,
+                    }
+                }
+            ) as client:
+                logger.info(f"Connected to MCP server at {MCP_SERVER_URL}")
+                coral_tools = client.get_tools()
+                agent_tools = [
+                    Tool(
+                        name="open_deepresearch",
+                        func=None,
+                        coroutine=odr_tool_async,
+                        description="Generates a comprehensive research report on a given topic using OpenDeepResearch. Returns the complete research report content with introduction, main body sections with research findings, and conclusions with structured elements.",
+                        args_schema={
+                            "properties": {
+                                "topic": {
+                                    "type": "string",
+                                    "description": "The topic for the research report"
+                                }
+                            },
+                            "required": ["topic"],
+                            "type": "object"
                         },
-                        "required": ["topic"],
-                        "type": "object"
-                    },
-                    response_format="content_and_artifact"
-                )
-            ]
-
-            agent = await create_odr_agent(coral_tools, agent_tools)
-            await agent.ainvoke({})
-
-            return
-
+                        response_format="content_and_artifact"
+                    )
+                ]
+                await (await create_odr_agent(coral_tools, agent_tools)).ainvoke({})
         except ClosedResourceError as e:
             logger.error(f"ClosedResourceError on attempt {attempt + 1}: {e}")
             if attempt < max_retries - 1:
                 logger.info("Retrying in 5 seconds...")
                 await asyncio.sleep(5)
+                continue
             else:
                 logger.error("Max retries reached. Exiting.")
                 raise
-
         except Exception as e:
             logger.error(f"Unexpected error on attempt {attempt + 1}: {e}")
             if attempt < max_retries - 1:
                 logger.info("Retrying in 5 seconds...")
                 await asyncio.sleep(5)
+                continue
             else:
                 logger.error("Max retries reached. Exiting.")
                 raise
