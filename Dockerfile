@@ -15,4 +15,4 @@ RUN uv sync --no-dev
 
 EXPOSE 5555
 
-CMD ["uv", "run", "python", "langchain_open_deep_research.py"]
+CMD ["uv", "run", "python", "web_service.py"]
