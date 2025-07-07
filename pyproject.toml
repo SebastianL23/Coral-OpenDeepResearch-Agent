@@ -15,4 +15,8 @@ dependencies = [
     "open-deep-research>=0.0.15",
     "requests>=2.32.3",
     "uvicorn[standard]>=0.24.0",
+    "supabase>=2.0.0",
+    "pandas>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
 ]

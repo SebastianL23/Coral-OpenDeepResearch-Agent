@@ -1,162 +1,303 @@
-## [Open Deep Research Agent](https://github.com/Coral-Protocol/Coral-OpenDeepResearch-Agent)
+# 🚀 Coral Research Agent - Upsell Engine
 
-The Open Deep Research agent is an open-source AI assistant that automates in-depth research and report generation via multi-agent workflows, supporting web search, structured reporting, human feedback, and API/LLM integration
+A powerful AI agent that analyzes your Supabase database to generate actionable upsell rules and campaigns for your e-commerce business.
 
-![Agentimage](https://github.com/Coral-Protocol/awesome-agents-for-multi-agent-systems/blob/main/images/Coral-OpenDeepResearch-Agent.png)
+## 🎯 What It Does
 
-## Responsibility
-The Open Deep Research agent is an open-source research assistant that automates comprehensive report generation using a graph-based workflow or multi-agent architecture. It can perform in-depth web searches, generate structured reports, support human-in-the-loop feedback, and integrate with APIs like Tavily, Linkup, DuckDuckGo, and Azure AI Search, using customizable LLMs for tailored, high-quality research outputs.
+The Coral Research Agent connects to your Supabase database and:
 
-## Details
-- **Framework**: LangChain
-- **Tools used**: OpenDeepResearch Tools, Coral server tools
-- **AI model**: GPT-4o
-- **Date added**: June 4, 2025
-- **Reference**: [Open Deep Research Repo](https://github.com/langchain-ai/open_deep_research)
-- **License**: MIT 
+1. **Analyzes your data** - Products, campaigns, rules, and performance metrics
+2. **Generates insights** - AI-powered analysis of your upsell opportunities
+3. **Creates rule suggestions** - Ready-to-implement upsell rules
+4. **Suggests campaigns** - Optimized campaign configurations
+5. **Prioritizes actions** - High-impact recommendations to implement first
 
-
-## Setup the Agent
-
-### 1. Clone & Install Dependencies
-
-
-<details>  
-
-```bash
-# In a new terminal clone the repository:
-git clone https://github.com/Coral-Protocol/Coral-OpenDeepResearch-Agent.git
-
-# Navigate to the project directory:
-cd Coral-OpenDeepResearch-Agent
-
-# Download and run the UV installer, setting the installation directory to the current one
-curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=$(pwd) sh
-
-# Create a virtual environment named `.venv` using UV
-uv venv .venv
-
-# Activate the virtual environment
-source .venv/bin/activate
-
-# install uv
-pip install uv
-
-# Install dependencies from `pyproject.toml` using `uv`:
-uv sync
-```
-
-</details>
- 
-
-### 2. Configure Environment Variables
-
-<details>
- 
-Get the API Key:
-[Linkup](https://app.linkup.so/api-keys) || 
-[OpenAI](https://platform.openai.com/api-keys)
-
-
-```bash
-# Create .env file in project root
-cp -r .env_sample .env
-```
-</details>
-
-
-## Run the Agent
-
-You can run in either of the below modes to get your system running.  
-
-- The Executable Model is part of the Coral Protocol Orchestrator which works with [Coral Studio UI](https://github.com/Coral-Protocol/coral-studio).  
-- The Dev Mode allows the Coral Server and all agents to be seaprately running on each terminal without UI support.  
-
-### 1. Executable Mode
-
-Checkout: [How to Build a Multi-Agent System with Awesome Open Source Agents using Coral Protocol](https://github.com/Coral-Protocol/existing-agent-sessions-tutorial-private-temp) and update the file: `coral-server/src/main/resources/application.yaml` with the details below, then run the [Coral Server](https://github.com/Coral-Protocol/coral-server) and [Coral Studio UI](https://github.com/Coral-Protocol/coral-studio). You do not need to set up the `.env` in the project directory for running in this mode; it will be captured through the variables below.
-
-<details>
-
-For Linux or MAC:
-
-```bash
-# PROJECT_DIR="/PATH/TO/YOUR/PROJECT"
-
-applications:
-  - id: "app"
-    name: "Default Application"
-    description: "Default application for testing"
-    privacyKeys:
-      - "default-key"
-      - "public"
-      - "priv"
-
-registry:
-  opendeepresearch_agent:
-    options:
-      - name: "API_KEY"
-        type: "string"
-        description: "API key for the service"
-      - name: "LINKUP_API_KEY"
-        type: "string"
-        description: "Linkup API key for the service"
-    runtime:
-      type: "executable"
-      command: ["bash", "-c", "${PROJECT_DIR}/run_agent.sh main.py"]
-      environment:
-        - name: "API_KEY"
-          from: "API_KEY"
-        - name: "LINKUP_API_KEY"
-          from: "LINKUP_API_KEY"
-        - name: "MODEL_NAME"
-          value: "gpt-4.1"
-        - name: "MODEL_PROVIDER"
-          value: "openai"
-        - name: "MODEL_TOKEN"
-          value: "16000"
-        - name: "MODEL_TEMPERATURE"
-          value: "0.3"
+## 🏗️ Architecture
 
 ```
-
-For Windows, create a powershell command (run_agent.ps1) and run:
-
-```bash
-command: ["powershell","-ExecutionPolicy", "Bypass", "-File", "${PROJECT_DIR}/run_agent.ps1","main.py"]
+Your UpsellEngine → API Call → Coral Research Agent → Supabase Analysis → JSON Response
 ```
 
-</details>
+## 🚀 Quick Start
 
-### 2. Dev Mode
+### 1. Environment Setup
 
-Ensure that the [Coral Server](https://github.com/Coral-Protocol/coral-server) is running on your system and run below command in a separate terminal.
-
-<details>
+Copy `.env_sample` to `.env` and configure:
 
 ```bash
-# Run the agent using `uv`:
-uv run python main.py
+# Groq Configuration
+GROQ_API_KEY=your_groq_api_key
+MODEL_NAME=llama3-70b-8192
+MODEL_PROVIDER=groq
+
+# Supabase Configuration
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+
+# Server Configuration
+PORT=5555
 ```
-</details>
 
-
-## Example
-
-<details>
-
+### 2. Install Dependencies
 
 ```bash
-# Input:
-Write me a report on Model Context Protocol.
-
-#Output:
-The research report will be displayed directly in the console output when you run the agent.
+pip install -e .
 ```
-</details>
 
+### 3. Run the Agent
 
-## Creator Details
-- **Name**: Suman Deb
-- **Affiliation**: Coral Protocol
-- **Contact**: [Discord](https://discord.com/invite/Xjm892dtt3)
+```bash
+python web_service.py
+```
+
+### 4. Test the Agent
+
+```bash
+python test_agent.py
+```
+
+## 📡 API Usage
+
+### Analyze User Data
+
+```bash
+curl -X POST http://localhost:5555/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "your-user-id",
+    "analysis_type": "comprehensive",
+    "time_range_days": 30
+  }'
+```
+
+### Response Format
+
+```json
+{
+  "user_id": "user-id",
+  "analysis_timestamp": "2024-01-01T12:00:00Z",
+  "insights": {
+    "product_insights": [...],
+    "campaign_insights": [...],
+    "rule_insights": [...],
+    "revenue_opportunities": [...]
+  },
+  "rule_suggestions": [
+    {
+      "name": "Cart Value Upsell",
+      "description": "Show upsell when cart value is above threshold",
+      "rule_type": "cart_value",
+      "conditions": {...},
+      "actions": {...},
+      "priority": 5,
+      "expected_impact": "high"
+    }
+  ],
+  "campaign_suggestions": [
+    {
+      "name": "Exit Intent Upsell",
+      "description": "Show upsell when user tries to leave",
+      "campaign_type": "popup",
+      "trigger_type": "exit_intent",
+      "content": {...},
+      "expected_impact": "high"
+    }
+  ],
+  "priority_actions": [
+    {
+      "name": "High Impact Product Insight",
+      "description": "Your best-selling product has high upsell potential",
+      "priority": "high",
+      "action": "Create product-based upsell rule",
+      "type": "insight"
+    }
+  ],
+  "data_summary": {
+    "total_products": 25,
+    "total_campaigns": 8,
+    "total_rules": 12,
+    "analysis_period_days": 30
+  }
+}
+```
+
+## 🔗 Integration with UpsellEngine
+
+### 1. API Endpoint Integration
+
+Add this to your UpsellEngine:
+
+```typescript
+// app/api/suggestions/route.ts
+export async function GET(request: NextRequest) {
+  try {
+    // Authenticate user
+    const supabase = createRouteHandlerClient({ cookies });
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Call Coral Research Agent
+    const response = await fetch('http://your-coral-agent-url/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: user.id,
+        analysis_type: 'comprehensive',
+        time_range_days: 30
+      })
+    });
+
+    const suggestions = await response.json();
+    return NextResponse.json(suggestions);
+  } catch (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+```
+
+### 2. Frontend Integration
+
+```typescript
+// components/AISuggestions.tsx
+const [suggestions, setSuggestions] = useState(null);
+
+const fetchSuggestions = async () => {
+  const response = await fetch('/api/suggestions');
+  const data = await response.json();
+  setSuggestions(data);
+};
+
+// Display suggestions
+{suggestions?.rule_suggestions.map((rule, index) => (
+  <div key={index} className="suggestion-card">
+    <h4>{rule.name}</h4>
+    <p>{rule.description}</p>
+    <button onClick={() => createRule(rule)}>
+      Create Rule
+    </button>
+  </div>
+))}
+```
+
+## 📊 Data Analysis
+
+The agent analyzes these tables from your Supabase database:
+
+- **`products`** - Product catalog and pricing
+- **`campaigns`** - Existing campaign performance
+- **`upsell_rules`** - Current rules and effectiveness
+- **`templates`** - Content templates
+- **`profiles`** - User profile and plan information
+
+## 🎯 Generated Insights
+
+### Product Insights
+- Product performance patterns
+- Pricing optimization opportunities
+- Bundle suggestions
+
+### Campaign Insights
+- Campaign effectiveness analysis
+- Trigger optimization
+- Content performance
+
+### Rule Insights
+- Rule effectiveness
+- Condition optimization
+- Action improvements
+
+### Revenue Opportunities
+- High-impact upsell opportunities
+- Revenue potential estimates
+- Implementation strategies
+
+## 🔧 Configuration
+
+### Analysis Types
+- `comprehensive` - Full analysis (default)
+- `rules_only` - Focus on rule suggestions
+- `campaigns_only` - Focus on campaign suggestions
+
+### Time Ranges
+- `7` - Last week
+- `30` - Last month (default)
+- `90` - Last quarter
+- `365` - Last year
+
+## 🚀 Deployment
+
+### Railway Deployment
+
+1. Connect your GitHub repository to Railway
+2. Set environment variables in Railway dashboard
+3. Deploy automatically on push
+
+### Environment Variables for Railway
+
+```bash
+GROQ_API_KEY=your_groq_api_key
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+PORT=5555
+```
+
+## 🧪 Testing
+
+### Local Testing
+
+```bash
+# Test the agent
+python test_agent.py
+
+# Test the API
+curl -X POST http://localhost:5555/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "test-user", "time_range_days": 30}'
+```
+
+### Production Testing
+
+```bash
+# Test deployed agent
+curl -X POST https://your-railway-app.railway.app/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "real-user-id", "time_range_days": 30}'
+```
+
+## 🔒 Security
+
+- All API calls require user authentication
+- Data is scoped to individual users
+- Uses Supabase Row Level Security (RLS)
+- No sensitive data is logged or exposed
+
+## 📈 Performance
+
+- Fast analysis (typically 5-10 seconds)
+- Cached insights for repeated requests
+- Optimized database queries
+- Efficient AI model usage
+
+## 🆘 Support
+
+If you encounter issues:
+
+1. Check environment variables are set correctly
+2. Verify Supabase connection and permissions
+3. Check Groq API key and limits
+4. Review logs for detailed error messages
+
+## 🔄 Updates
+
+The agent automatically:
+- Adapts to your data structure
+- Learns from your performance patterns
+- Suggests improvements based on trends
+- Updates recommendations as your business grows
+
+---
+
+**🎉 Your Coral Research Agent is ready to boost your upsell revenue!**
