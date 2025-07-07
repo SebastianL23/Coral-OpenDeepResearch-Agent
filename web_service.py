@@ -95,27 +95,45 @@ class CoralResearchAgent:
         
         # Check if we have required services
         if not self.supabase:
+            logger.warning("No Supabase connection - using demo mode")
             return await self._generate_demo_analysis(user_id, time_range_days)
         
         if not self.model:
+            logger.warning("No Groq model connection - using fallback mode")
             return await self._generate_fallback_analysis(user_id, time_range_days)
         
         # Get data from all relevant tables
+        logger.info(f"Fetching data for user {user_id} (last {time_range_days} days)")
         data = await self._fetch_user_data(user_id, time_range_days)
         
+        # DEBUG: Log what data we received
+        logger.info(f"=== DATA RECEIVED DEBUG ===")
+        logger.info(f"Total data keys: {list(data.keys())}")
+        for key, value in data.items():
+            if isinstance(value, list):
+                logger.info(f"{key}: {len(value)} items")
+                if value and len(value) > 0:
+                    logger.info(f"Sample {key}: {value[0]}")
+            else:
+                logger.info(f"{key}: {value}")
+        
         # Generate insights using AI
+        logger.info("Generating insights...")
         insights = await self._generate_insights(data, user_id)
         
         # Generate rule suggestions
+        logger.info("Generating rule suggestions...")
         rule_suggestions = await self._generate_rule_suggestions(data, insights, user_id)
         
         # Generate campaign suggestions
+        logger.info("Generating campaign suggestions...")
         campaign_suggestions = await self._generate_campaign_suggestions(data, insights, user_id)
         
         # Generate priority actions
+        logger.info("Generating priority actions...")
         priority_actions = await self._generate_priority_actions(insights, rule_suggestions, campaign_suggestions)
         
-        return {
+        result = {
             "user_id": user_id,
             "analysis_timestamp": datetime.now().isoformat(),
             "insights": insights,
@@ -124,6 +142,11 @@ class CoralResearchAgent:
             "priority_actions": priority_actions,
             "data_summary": self._create_data_summary(data)
         }
+        
+        logger.info(f"Analysis completed for user {user_id}")
+        logger.info(f"Generated {len(rule_suggestions)} rules, {len(campaign_suggestions)} campaigns")
+        
+        return result
     
     async def _generate_demo_analysis(self, user_id: str, time_range_days: int) -> Dict[str, Any]:
         """Generate demo analysis when Supabase is not available"""
@@ -613,23 +636,44 @@ Return ONLY the JSON array."""),
         orders = data.get('shopify_orders', [])
         cart_events = data.get('cart_events', [])
         
+        # DEBUG: Log raw data
+        logger.info(f"=== DATA ANALYSIS DEBUG ===")
+        logger.info(f"Raw products count: {len(products)}")
+        logger.info(f"Raw orders count: {len(orders)}")
+        logger.info(f"Raw cart_events count: {len(cart_events)}")
+        
+        if products:
+            logger.info(f"Sample product: {products[0]}")
+        if orders:
+            logger.info(f"Sample order: {orders[0]}")
+        if cart_events:
+            logger.info(f"Sample cart event: {cart_events[0]}")
+        
         # Analyze product pricing
         prices = [p.get('price', 0) for p in products if p.get('price')]
+        logger.info(f"Product prices found: {len(prices)} out of {len(products)} products")
+        logger.info(f"Price values: {prices[:5]}")  # Show first 5 prices
+        
         price_analysis = {
             'min': min(prices) if prices else 0,
             'max': max(prices) if prices else 0,
             'average': sum(prices) / len(prices) if prices else 0,
             'count': len(prices)
         }
+        logger.info(f"Price analysis: {price_analysis}")
         
         # Analyze order patterns
         order_totals = [o.get('total_price', 0) for o in orders if o.get('total_price')]
+        logger.info(f"Order totals found: {len(order_totals)} out of {len(orders)} orders")
+        logger.info(f"Order total values: {order_totals[:5]}")  # Show first 5 order totals
+        
         order_analysis = {
             'total_orders': len(orders),
             'avg_order_value': sum(order_totals) / len(order_totals) if order_totals else 0,
             'min_order': min(order_totals) if order_totals else 0,
             'max_order': max(order_totals) if order_totals else 0
         }
+        logger.info(f"Order analysis: {order_analysis}")
         
         # Analyze cart behavior
         cart_analysis = {
@@ -637,11 +681,13 @@ Return ONLY the JSON array."""),
             'abandonment_rate': self._calculate_abandonment_rate(cart_events, orders),
             'avg_cart_value': self._calculate_avg_cart_value(cart_events)
         }
+        logger.info(f"Cart analysis: {cart_analysis}")
         
         # Sample product names for context
         sample_products = [p.get('title', 'Unknown')[:20] for p in products[:3]]
+        logger.info(f"Sample products: {sample_products}")
         
-        return {
+        analysis_result = {
             'price_range': price_analysis,
             'total_orders': len(orders),
             'total_cart_events': len(cart_events),
@@ -651,6 +697,11 @@ Return ONLY the JSON array."""),
             'order_patterns': order_analysis,
             'cart_patterns': cart_analysis
         }
+        
+        logger.info(f"=== FINAL ANALYSIS RESULT ===")
+        logger.info(f"Analysis result: {json.dumps(analysis_result, indent=2)}")
+        
+        return analysis_result
     
     def _select_target_products(self, products: List[Dict], rule_type: str, conditions: Dict, analysis: Dict) -> List[str]:
         """Select appropriate target products based on rule type and conditions"""
@@ -729,6 +780,7 @@ Return ONLY the JSON array."""),
         existing_rules = data.get('upsell_rules', [])
         
         # Add debugging logs
+        logger.info(f"=== RULE GENERATION DEBUG ===")
         logger.info(f"Data analysis for rules: {analysis}")
         logger.info(f"Number of products: {len(products)}")
         logger.info(f"Number of existing rules: {len(existing_rules)}")
@@ -746,6 +798,7 @@ Return ONLY the JSON array."""),
         if rule_name not in existing_rule_names and analysis['price_range']['max'] > 100:
             cart_threshold = int(analysis['price_range']['average'] * 1.5)
             logger.info(f"Generating Premium Product Upsell rule with cart threshold: ${cart_threshold}")
+            logger.info(f"Price range: min=${analysis['price_range']['min']}, max=${analysis['price_range']['max']}, avg=${analysis['price_range']['average']}")
             conditions = {
                 "cart_value_operator": "greater_than",
                 "cart_value": cart_threshold
@@ -770,6 +823,7 @@ Return ONLY the JSON array."""),
         if rule_name not in existing_rule_names and analysis['price_range']['average'] > 0:
             cart_threshold = int(analysis['price_range']['average'])
             logger.info(f"Generating Cart Completion rule with cart threshold: ${cart_threshold}")
+            logger.info(f"Average product price: ${analysis['price_range']['average']}")
             conditions = {
                 "cart_value_operator": "greater_than",
                 "cart_value": cart_threshold
@@ -795,6 +849,7 @@ Return ONLY the JSON array."""),
             min_threshold = analysis['price_range']['min']
             max_threshold = int(analysis['price_range']['average'] * 0.8)
             logger.info(f"Generating Entry-Level Upgrade rule with cart range: ${min_threshold}-${max_threshold}")
+            logger.info(f"Min price: ${analysis['price_range']['min']}, Max threshold: ${max_threshold}")
             conditions = {
                 "cart_value_operator": "between",
                 "cart_value_min": min_threshold,
@@ -820,6 +875,7 @@ Return ONLY the JSON array."""),
         if rule_name not in existing_rule_names and analysis['order_patterns']['avg_order_value'] > 0:
             cart_threshold = int(analysis['order_patterns']['avg_order_value'])
             logger.info(f"Generating High-Value Customer rule with cart threshold: ${cart_threshold}")
+            logger.info(f"Average order value: ${analysis['order_patterns']['avg_order_value']}")
             conditions = {
                 "cart_value_operator": "greater_than",
                 "cart_value": cart_threshold
@@ -1427,6 +1483,7 @@ async def health_check():
 async def analyze_user_data(request: AnalysisRequest):
     try:
         logger.info(f"Starting analysis for user {request.user_id}")
+        logger.info(f"Request data: {request.dict()}")
         
         # Perform the analysis
         result = await agent.analyze_user_data(
@@ -1440,6 +1497,50 @@ async def analyze_user_data(request: AnalysisRequest):
     except Exception as e:
         logger.error(f"Analysis failed for user {request.user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+@app.post("/debug")
+async def debug_request(request: AnalysisRequest):
+    """Debug endpoint to see what data is being sent"""
+    try:
+        logger.info(f"=== DEBUG REQUEST ===")
+        logger.info(f"User ID: {request.user_id}")
+        logger.info(f"Analysis Type: {request.analysis_type}")
+        logger.info(f"Time Range Days: {request.time_range_days}")
+        
+        # Test data fetch
+        if agent.supabase:
+            logger.info("Testing Supabase connection...")
+            data = await agent._fetch_user_data(request.user_id, request.time_range_days)
+            logger.info(f"Data fetch result: {json.dumps(data, indent=2, default=str)}")
+            
+            return {
+                "status": "success",
+                "user_id": request.user_id,
+                "data_summary": {
+                    "products": len(data.get('shopify_products', [])),
+                    "orders": len(data.get('shopify_orders', [])),
+                    "cart_events": len(data.get('cart_events', [])),
+                    "campaigns": len(data.get('campaigns', [])),
+                    "rules": len(data.get('upsell_rules', []))
+                },
+                "sample_data": {
+                    "sample_product": data.get('shopify_products', [{}])[0] if data.get('shopify_products') else None,
+                    "sample_order": data.get('shopify_orders', [{}])[0] if data.get('shopify_orders') else None,
+                    "sample_cart_event": data.get('cart_events', [{}])[0] if data.get('cart_events') else None
+                }
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "No Supabase connection available"
+            }
+            
+    except Exception as e:
+        logger.error(f"Debug request failed: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
 
 if __name__ == "__main__":
     import uvicorn
