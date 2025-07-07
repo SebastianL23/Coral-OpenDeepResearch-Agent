@@ -413,122 +413,501 @@ class CoralResearchAgent:
             return self._generate_fallback_insights(data_summary)
     
     async def _generate_rule_suggestions(self, data: Dict[str, Any], insights: Dict[str, Any], user_id: str) -> List[Dict[str, Any]]:
-        """Generate specific upsell rule suggestions in UpsellEngine format"""
+        """Generate specific upsell rule suggestions based on actual data analysis"""
         
+        # First, let's analyze the actual data to create data-driven rules
+        data_analysis = self._analyze_data_for_rules(data)
+        
+        # Create a much simpler, more focused prompt
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert in creating upsell rules for e-commerce. 
-            Based on the customer behavior, performance data, and product data provided, generate specific, actionable upsell rules.
-            
-            Each rule should be in the exact format expected by the UpsellEngine system.
-            
-            Rule Types:
-            - product_based: Triggered by specific products in cart
-            - cart_value: Triggered by cart total value
-            - customer_segment: Triggered by customer characteristics
-            - time_based: Triggered by time factors
-            
-            Focus on creating rules that will increase revenue based on the actual data patterns."""),
-            ("user", f"""Create upsell rules based on this data and insights:
-            
-            Customer Behavior Data: {json.dumps({
-                'orders': len(data.get('shopify_orders', [])),
-                'cart_events': len(data.get('cart_events', [])),
-                'sample_orders': data.get('shopify_orders', [])[:3] if data.get('shopify_orders') else [],
-                'sample_cart_events': data.get('cart_events', [])[:3] if data.get('cart_events') else []
-            }, indent=2)}
-            
-            Performance Data: {json.dumps({
-                'upsell_events': len(data.get('upsell_events', [])),
-                'campaigns': len(data.get('campaigns', [])),
-                'existing_rules': len(data.get('upsell_rules', []))
-            }, indent=2)}
-            
-            Product Data: {json.dumps({
-                'products': len(data.get('shopify_products', [])),
-                'sample_products': data.get('shopify_products', [])[:3] if data.get('shopify_products') else []
-            }, indent=2)}
-            
-            Insights: {json.dumps(insights, indent=2)}
-            
-            Generate rules in this EXACT JSON format for UpsellEngine:
-            [
-                {{
-                    "name": "Descriptive rule name",
-                    "description": "Clear description of what this rule does",
-                    "rule_type": "product_based/cart_value/customer_segment/time_based",
-                    "conditions": {{
-                        "field": "cart_total/product_id/customer_segment/time",
-                        "operator": "equals/greater_than/less_than/contains/in",
-                        "value": "specific value or array"
-                    }},
-                    "actions": {{
-                        "action_type": "show_campaign/add_product/apply_discount",
-                        "campaign_id": "campaign_id_to_show",
-                        "products": ["product_ids_to_add"],
-                        "discount": "discount_percentage_or_amount"
-                    }},
-                    "priority": 1-10,
-                    "expected_impact": "high/medium/low",
-                    "implementation_notes": "Specific notes on how to implement this rule"
-                }}
-            ]
-            
-            Create 3-5 high-quality rules based on the actual data patterns you see.""")
+            ("system", """You are an expert e-commerce analyst. Create specific, data-driven upsell rules based on the provided business data.
+
+IMPORTANT: Return ONLY valid JSON array. No explanations, no markdown, just pure JSON.
+
+Example format:
+[
+  {
+    "name": "Rule Name",
+    "description": "Description",
+    "rule_type": "cart_value",
+    "conditions": {"field": "cart_total", "operator": "greater_than", "value": 100},
+    "actions": {"action_type": "show_campaign", "campaign_id": "premium_upsell"},
+    "priority": 5,
+    "expected_impact": "high",
+    "implementation_notes": "Notes"
+  }
+]"""),
+            ("user", f"""Based on this business data, create 3-5 specific upsell rules:
+
+BUSINESS DATA:
+- Product Price Range: ${data_analysis['price_range']['min']} - ${data_analysis['price_range']['max']} (avg: ${data_analysis['price_range']['average']})
+- Total Orders: {data_analysis['total_orders']}
+- Cart Events: {data_analysis['total_cart_events']}
+- Existing Campaigns: {data_analysis['existing_campaigns']}
+- Existing Rules: {data_analysis['existing_rules']}
+- Sample Products: {data_analysis['sample_products']}
+- Order Patterns: {data_analysis['order_patterns']}
+
+Create rules that:
+1. Use actual price thresholds based on the data
+2. Target specific product categories or price points
+3. Address real customer behavior patterns
+4. Have realistic priority levels (1-10)
+5. Include specific implementation notes
+
+Return ONLY the JSON array."""),
         ])
         
         try:
             response = await self.model.ainvoke(prompt.format_messages())
-            rules = json.loads(response.content)
-            return rules if isinstance(rules, list) else []
+            
+            # Clean and parse the response
+            content = response.content.strip()
+            
+            # Remove any markdown formatting
+            if content.startswith('```json'):
+                content = content[7:]
+            if content.endswith('```'):
+                content = content[:-3]
+            content = content.strip()
+            
+            # Try to parse the JSON
+            rules = json.loads(content)
+            
+            if isinstance(rules, list) and len(rules) > 0:
+                logger.info(f"Successfully generated {len(rules)} AI-driven rules")
+                return rules
+            else:
+                logger.warning("AI returned empty or invalid rules, using data-driven fallback")
+                return self._generate_data_driven_rules(data)
+                
         except Exception as e:
-            logger.error(f"Error generating rules: {str(e)}")
-            return self._generate_fallback_rules(data)
+            logger.error(f"Error generating AI rules: {str(e)}")
+            logger.info("Falling back to data-driven rule generation")
+            return self._generate_data_driven_rules(data)
+    
+    def _analyze_data_for_rules(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze actual data to create data-driven insights"""
+        
+        products = data.get('shopify_products', [])
+        orders = data.get('shopify_orders', [])
+        cart_events = data.get('cart_events', [])
+        
+        # Analyze product pricing
+        prices = [p.get('price', 0) for p in products if p.get('price')]
+        price_analysis = {
+            'min': min(prices) if prices else 0,
+            'max': max(prices) if prices else 0,
+            'average': sum(prices) / len(prices) if prices else 0,
+            'count': len(prices)
+        }
+        
+        # Analyze order patterns
+        order_totals = [o.get('total_price', 0) for o in orders if o.get('total_price')]
+        order_analysis = {
+            'total_orders': len(orders),
+            'avg_order_value': sum(order_totals) / len(order_totals) if order_totals else 0,
+            'min_order': min(order_totals) if order_totals else 0,
+            'max_order': max(order_totals) if order_totals else 0
+        }
+        
+        # Analyze cart behavior
+        cart_analysis = {
+            'total_cart_events': len(cart_events),
+            'abandonment_rate': self._calculate_abandonment_rate(cart_events, orders),
+            'avg_cart_value': self._calculate_avg_cart_value(cart_events)
+        }
+        
+        # Sample product names for context
+        sample_products = [p.get('title', 'Unknown')[:20] for p in products[:3]]
+        
+        return {
+            'price_range': price_analysis,
+            'total_orders': len(orders),
+            'total_cart_events': len(cart_events),
+            'existing_campaigns': len(data.get('campaigns', [])),
+            'existing_rules': len(data.get('upsell_rules', [])),
+            'sample_products': sample_products,
+            'order_patterns': order_analysis,
+            'cart_patterns': cart_analysis
+        }
+    
+    def _generate_data_driven_rules(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate rules based on actual data analysis - no generic fallbacks"""
+        
+        analysis = self._analyze_data_for_rules(data)
+        rules = []
+        
+        # Rule 1: Premium Product Upsell (based on actual max price)
+        if analysis['price_range']['max'] > 100:
+            rules.append({
+                "name": f"Premium Product Upsell (${analysis['price_range']['max']})",
+                "description": f"Target customers with high-value carts to promote premium ${analysis['price_range']['max']} products",
+                "rule_type": "cart_value",
+                "conditions": {
+                    "field": "cart_total",
+                    "operator": "greater_than",
+                    "value": int(analysis['price_range']['average'] * 1.5)
+                },
+                "actions": {
+                    "action_type": "show_campaign",
+                    "campaign_id": "premium_product_upsell"
+                },
+                "priority": 8,
+                "expected_impact": "high",
+                "implementation_notes": f"Target customers spending ${int(analysis['price_range']['average'] * 1.5)}+ to promote premium ${analysis['price_range']['max']} products"
+            })
+        
+        # Rule 2: Mid-Range Cart Completion (based on average product price)
+        if analysis['price_range']['average'] > 0:
+            rules.append({
+                "name": f"Cart Completion (${analysis['price_range']['average']:.0f} threshold)",
+                "description": f"Encourage customers to add one more item when cart reaches ${analysis['price_range']['average']:.0f}",
+                "rule_type": "cart_value",
+                "conditions": {
+                    "field": "cart_total",
+                    "operator": "greater_than",
+                    "value": int(analysis['price_range']['average'])
+                },
+                "actions": {
+                    "action_type": "show_campaign",
+                    "campaign_id": "cart_completion_upsell"
+                },
+                "priority": 6,
+                "expected_impact": "medium",
+                "implementation_notes": f"Trigger when cart exceeds ${analysis['price_range']['average']:.0f} (average product price)"
+            })
+        
+        # Rule 3: Entry-Level Upgrade (based on minimum price)
+        if analysis['price_range']['min'] > 0:
+            rules.append({
+                "name": f"Entry-Level Upgrade (${analysis['price_range']['min']} → ${analysis['price_range']['average']:.0f})",
+                "description": f"Upgrade customers from ${analysis['price_range']['min']} items to ${analysis['price_range']['average']:.0f} average products",
+                "rule_type": "cart_value",
+                "conditions": {
+                    "field": "cart_total",
+                    "operator": "between",
+                    "value": [analysis['price_range']['min'], int(analysis['price_range']['average'] * 0.8)]
+                },
+                "actions": {
+                    "action_type": "show_campaign",
+                    "campaign_id": "entry_level_upgrade"
+                },
+                "priority": 5,
+                "expected_impact": "medium",
+                "implementation_notes": f"Target customers with ${analysis['price_range']['min']}-${int(analysis['price_range']['average'] * 0.8)} carts for upgrades"
+            })
+        
+        # Rule 4: High-Value Customer (based on order history)
+        if analysis['order_patterns']['avg_order_value'] > 0:
+            rules.append({
+                "name": f"High-Value Customer (${analysis['order_patterns']['avg_order_value']:.0f} AOV)",
+                "description": f"Target customers with above-average order values of ${analysis['order_patterns']['avg_order_value']:.0f}",
+                "rule_type": "cart_value",
+                "conditions": {
+                    "field": "cart_total",
+                    "operator": "greater_than",
+                    "value": int(analysis['order_patterns']['avg_order_value'])
+                },
+                "actions": {
+                    "action_type": "show_campaign",
+                    "campaign_id": "high_value_customer_upsell"
+                },
+                "priority": 7,
+                "expected_impact": "high",
+                "implementation_notes": f"Target customers spending above your ${analysis['order_patterns']['avg_order_value']:.0f} average order value"
+            })
+        
+        # Rule 5: Cart Abandonment Recovery (based on actual abandonment rate)
+        if analysis['cart_patterns']['abandonment_rate'] > 0.3:  # If abandonment rate > 30%
+            rules.append({
+                "name": "Cart Abandonment Recovery",
+                "description": f"Recover abandoned carts with {analysis['cart_patterns']['abandonment_rate']:.1%} abandonment rate",
+                "rule_type": "time_based",
+                "conditions": {
+                    "field": "time_on_site",
+                    "operator": "greater_than",
+                    "value": 300  # 5 minutes
+                },
+                "actions": {
+                    "action_type": "show_campaign",
+                    "campaign_id": "abandonment_recovery"
+                },
+                "priority": 9,
+                "expected_impact": "high",
+                "implementation_notes": f"Target customers who spend 5+ minutes on site with {analysis['cart_patterns']['abandonment_rate']:.1%} abandonment rate"
+            })
+        
+        logger.info(f"Generated {len(rules)} data-driven rules based on actual business data")
+        return rules
+    
+    def _calculate_abandonment_rate(self, cart_events: List[Dict], orders: List[Dict]) -> float:
+        """Calculate cart abandonment rate based on actual data"""
+        if not cart_events:
+            return 0.0
+        
+        # Simple calculation: orders / cart events
+        return 1 - (len(orders) / len(cart_events)) if len(cart_events) > 0 else 0.0
+    
+    def _calculate_avg_cart_value(self, cart_events: List[Dict]) -> float:
+        """Calculate average cart value from cart events"""
+        if not cart_events:
+            return 0.0
+        
+        cart_values = [event.get('cart_total', 0) for event in cart_events if event.get('cart_total')]
+        return sum(cart_values) / len(cart_values) if cart_values else 0.0
     
     async def _generate_campaign_suggestions(self, data: Dict[str, Any], insights: Dict[str, Any], user_id: str) -> List[Dict[str, Any]]:
-        """Generate campaign suggestions"""
+        """Generate data-driven campaign suggestions based on actual business data"""
         
+        # Analyze data for campaign creation
+        data_analysis = self._analyze_data_for_campaigns(data)
+        
+        # Create a simpler, focused prompt
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert in creating e-commerce campaigns for upsells.
-            Based on the data and insights, generate specific campaign suggestions that will increase revenue."""),
-            ("user", f"""Create campaign suggestions based on this data and insights:
-            
-            Data Summary: {json.dumps(self._create_data_summary(data), indent=2)}
-            Insights: {json.dumps(insights, indent=2)}
-            
-            Generate campaigns in this JSON format:
-            [
-                {{
-                    "name": "Campaign name",
-                    "description": "What this campaign does",
-                    "campaign_type": "popup/banner/modal/inline",
-                    "trigger_type": "page_load/scroll/time_delay/exit_intent",
-                    "trigger_delay": 0,
-                    "trigger_scroll_percentage": 50,
-                    "target_pages": ["/cart", "/checkout"],
-                    "excluded_pages": [],
-                    "settings": {{
-                        "position": "top/bottom/center",
-                        "style": "modern/minimal/bold"
-                    }},
-                    "content": {{
-                        "title": "Campaign title",
-                        "message": "Campaign message",
-                        "cta_text": "Call to action",
-                        "offer": "Special offer details"
-                    }},
-                    "expected_impact": "high/medium/low",
-                    "implementation_notes": "How to implement"
-                }}
-            ]""")
+            ("system", """You are an expert e-commerce marketer. Create specific, data-driven campaigns based on the provided business data.
+
+IMPORTANT: Return ONLY valid JSON array. No explanations, no markdown, just pure JSON.
+
+Example format:
+[
+  {
+    "name": "Campaign Name",
+    "description": "Description",
+    "campaign_type": "popup",
+    "trigger_type": "exit_intent",
+    "trigger_delay": 0,
+    "trigger_scroll_percentage": 50,
+    "target_pages": ["/cart", "/checkout"],
+    "excluded_pages": [],
+    "settings": {"position": "center", "style": "modern"},
+    "content": {"title": "Title", "message": "Message", "cta_text": "CTA", "offer": "Offer"},
+    "expected_impact": "high",
+    "implementation_notes": "Notes"
+  }
+]"""),
+            ("user", f"""Based on this business data, create 3-5 specific campaigns:
+
+BUSINESS DATA:
+- Product Price Range: ${data_analysis['price_range']['min']} - ${data_analysis['price_range']['max']} (avg: ${data_analysis['price_range']['average']})
+- Total Orders: {data_analysis['total_orders']}
+- Cart Events: {data_analysis['total_cart_events']}
+- Abandonment Rate: {data_analysis['abandonment_rate']:.1%}
+- Average Order Value: ${data_analysis['avg_order_value']:.0f}
+- Sample Products: {data_analysis['sample_products']}
+
+Create campaigns that:
+1. Address real customer behavior patterns
+2. Use actual pricing data for offers
+3. Target specific abandonment or conversion issues
+4. Have realistic impact expectations
+5. Include specific implementation strategies
+
+Return ONLY the JSON array."""),
         ])
         
         try:
             response = await self.model.ainvoke(prompt.format_messages())
-            campaigns = json.loads(response.content)
-            return campaigns if isinstance(campaigns, list) else []
+            
+            # Clean and parse the response
+            content = response.content.strip()
+            
+            # Remove any markdown formatting
+            if content.startswith('```json'):
+                content = content[7:]
+            if content.endswith('```'):
+                content = content[:-3]
+            content = content.strip()
+            
+            # Try to parse the JSON
+            campaigns = json.loads(content)
+            
+            if isinstance(campaigns, list) and len(campaigns) > 0:
+                logger.info(f"Successfully generated {len(campaigns)} AI-driven campaigns")
+                return campaigns
+            else:
+                logger.warning("AI returned empty or invalid campaigns, using data-driven fallback")
+                return self._generate_data_driven_campaigns(data)
+                
         except Exception as e:
-            logger.error(f"Error generating campaigns: {str(e)}")
-            return self._generate_fallback_campaigns(data)
+            logger.error(f"Error generating AI campaigns: {str(e)}")
+            logger.info("Falling back to data-driven campaign generation")
+            return self._generate_data_driven_campaigns(data)
+    
+    def _analyze_data_for_campaigns(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze actual data to create data-driven campaign insights"""
+        
+        products = data.get('shopify_products', [])
+        orders = data.get('shopify_orders', [])
+        cart_events = data.get('cart_events', [])
+        
+        # Analyze product pricing
+        prices = [p.get('price', 0) for p in products if p.get('price')]
+        price_analysis = {
+            'min': min(prices) if prices else 0,
+            'max': max(prices) if prices else 0,
+            'average': sum(prices) / len(prices) if prices else 0,
+            'count': len(prices)
+        }
+        
+        # Analyze order patterns
+        order_totals = [o.get('total_price', 0) for o in orders if o.get('total_price')]
+        avg_order_value = sum(order_totals) / len(order_totals) if order_totals else 0
+        
+        # Calculate abandonment rate
+        abandonment_rate = self._calculate_abandonment_rate(cart_events, orders)
+        
+        # Sample product names for context
+        sample_products = [p.get('title', 'Unknown')[:20] for p in products[:3]]
+        
+        return {
+            'price_range': price_analysis,
+            'total_orders': len(orders),
+            'total_cart_events': len(cart_events),
+            'abandonment_rate': abandonment_rate,
+            'avg_order_value': avg_order_value,
+            'sample_products': sample_products
+        }
+    
+    def _generate_data_driven_campaigns(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate campaigns based on actual data analysis - no generic fallbacks"""
+        
+        analysis = self._analyze_data_for_campaigns(data)
+        campaigns = []
+        
+        # Campaign 1: Premium Product Campaign (based on max price)
+        if analysis['price_range']['max'] > 100:
+            discount_amount = int(analysis['price_range']['max'] * 0.15)  # 15% of max price
+            campaigns.append({
+                "name": f"Premium Product Campaign (${analysis['price_range']['max']})",
+                "description": f"Promote premium ${analysis['price_range']['max']} products with strategic discount",
+                "campaign_type": "popup",
+                "trigger_type": "exit_intent",
+                "trigger_delay": 0,
+                "trigger_scroll_percentage": 50,
+                "target_pages": ["/cart", "/checkout", "/product"],
+                "excluded_pages": [],
+                "settings": {
+                    "position": "center",
+                    "style": "premium"
+                },
+                "content": {
+                    "title": f"Upgrade to Premium - Save ${discount_amount}",
+                    "message": f"Get our premium ${analysis['price_range']['max']} product with exclusive discount",
+                    "cta_text": "Upgrade Now",
+                    "offer": f"${discount_amount} off premium products"
+                },
+                "expected_impact": "high",
+                "implementation_notes": f"Target customers showing interest in premium ${analysis['price_range']['max']} products"
+            })
+        
+        # Campaign 2: Cart Completion (based on abandonment rate)
+        if analysis['abandonment_rate'] > 0.2:  # If abandonment > 20%
+            completion_discount = int(analysis['price_range']['average'] * 0.1)  # 10% of average price
+            campaigns.append({
+                "name": "Cart Completion Campaign",
+                "description": f"Reduce {analysis['abandonment_rate']:.1%} abandonment rate with completion incentives",
+                "campaign_type": "popup",
+                "trigger_type": "exit_intent",
+                "trigger_delay": 0,
+                "trigger_scroll_percentage": 30,
+                "target_pages": ["/cart"],
+                "excluded_pages": [],
+                "settings": {
+                    "position": "center",
+                    "style": "urgent"
+                },
+                "content": {
+                    "title": "Complete Your Order - Save Now!",
+                    "message": f"Don't lose your cart! Complete your order and save ${completion_discount}",
+                    "cta_text": "Complete Order",
+                    "offer": f"${completion_discount} off when you complete your order"
+                },
+                "expected_impact": "high",
+                "implementation_notes": f"Target {analysis['abandonment_rate']:.1%} cart abandonment rate with completion incentives"
+            })
+        
+        # Campaign 3: Average Order Value Boost (based on current AOV)
+        if analysis['avg_order_value'] > 0:
+            aov_boost_target = int(analysis['avg_order_value'] * 1.2)  # 20% increase target
+            boost_discount = int(analysis['price_range']['average'] * 0.05)  # 5% of average price
+            campaigns.append({
+                "name": f"AOV Boost Campaign (${analysis['avg_order_value']:.0f} → ${aov_boost_target})",
+                "description": f"Increase average order value from ${analysis['avg_order_value']:.0f} to ${aov_boost_target}",
+                "campaign_type": "popup",
+                "trigger_type": "cart_add",
+                "trigger_delay": 2,
+                "trigger_scroll_percentage": 0,
+                "target_pages": ["/cart"],
+                "excluded_pages": [],
+                "settings": {
+                    "position": "bottom",
+                    "style": "subtle"
+                },
+                "content": {
+                    "title": f"Add ${aov_boost_target - analysis['avg_order_value']:.0f} More - Save ${boost_discount}",
+                    "message": f"Add just ${aov_boost_target - analysis['avg_order_value']:.0f} more to your cart and save ${boost_discount}",
+                    "cta_text": "Add Item",
+                    "offer": f"${boost_discount} off when you reach ${aov_boost_target}"
+                },
+                "expected_impact": "medium",
+                "implementation_notes": f"Boost AOV from ${analysis['avg_order_value']:.0f} to ${aov_boost_target} with targeted incentives"
+            })
+        
+        # Campaign 4: Entry-Level Upgrade (based on minimum price)
+        if analysis['price_range']['min'] > 0 and analysis['price_range']['average'] > analysis['price_range']['min']:
+            upgrade_savings = int((analysis['price_range']['average'] - analysis['price_range']['min']) * 0.2)
+            campaigns.append({
+                "name": f"Entry-Level Upgrade (${analysis['price_range']['min']} → ${analysis['price_range']['average']:.0f})",
+                "description": f"Upgrade customers from ${analysis['price_range']['min']} to ${analysis['price_range']['average']:.0f} products",
+                "campaign_type": "inline",
+                "trigger_type": "page_load",
+                "trigger_delay": 3,
+                "trigger_scroll_percentage": 0,
+                "target_pages": ["/product"],
+                "excluded_pages": [],
+                "settings": {
+                    "position": "inline",
+                    "style": "informative"
+                },
+                "content": {
+                    "title": "Upgrade & Save",
+                    "message": f"Upgrade from ${analysis['price_range']['min']} to premium ${analysis['price_range']['average']:.0f} products and save ${upgrade_savings}",
+                    "cta_text": "Upgrade Now",
+                    "offer": f"${upgrade_savings} off premium upgrade"
+                },
+                "expected_impact": "medium",
+                "implementation_notes": f"Upgrade customers from ${analysis['price_range']['min']} to ${analysis['price_range']['average']:.0f} products"
+            })
+        
+        # Campaign 5: New Customer Welcome (if low order count)
+        if analysis['total_orders'] < 10:  # New business
+            welcome_discount = int(analysis['price_range']['average'] * 0.1)
+            campaigns.append({
+                "name": "New Customer Welcome",
+                "description": f"Welcome new customers with {analysis['total_orders']} orders to date",
+                "campaign_type": "popup",
+                "trigger_type": "page_load",
+                "trigger_delay": 5,
+                "trigger_scroll_percentage": 0,
+                "target_pages": ["/"],
+                "excluded_pages": ["/cart", "/checkout"],
+                "settings": {
+                    "position": "center",
+                    "style": "welcoming"
+                },
+                "content": {
+                    "title": "Welcome! Here's Your Discount",
+                    "message": f"Welcome to our store! Get ${welcome_discount} off your first order",
+                    "cta_text": "Start Shopping",
+                    "offer": f"${welcome_discount} off first order"
+                },
+                "expected_impact": "high",
+                "implementation_notes": f"Welcome new customers with {analysis['total_orders']} total orders"
+            })
+        
+        logger.info(f"Generated {len(campaigns)} data-driven campaigns based on actual business data")
+        return campaigns
     
     async def _generate_priority_actions(self, insights: Dict[str, Any], rules: List[Dict], campaigns: List[Dict]) -> List[Dict[str, Any]]:
         """Generate priority actions based on insights and suggestions"""
