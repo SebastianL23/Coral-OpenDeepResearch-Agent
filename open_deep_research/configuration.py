@@ -48,8 +48,8 @@ class Configuration:
     writer_model_kwargs: Optional[Dict[str, Any]] = None # kwargs for writer_model
     
     # Multi-agent specific configuration
-    supervisor_model: str = "openai:gpt-4.1" # Model for supervisor agent in multi-agent setup
-    researcher_model: str = "openai:gpt-4.1" # Model for research agents in multi-agent setup 
+    supervisor_model: str = "groq:llama3-70b-8192" # Model for supervisor agent in multi-agent setup
+    researcher_model: str = "groq:llama3-70b-8192" # Model for research agents in multi-agent setup 
 
     @classmethod
     def from_runnable_config(
