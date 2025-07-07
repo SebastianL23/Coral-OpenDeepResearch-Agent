@@ -423,20 +423,46 @@ class CoralResearchAgent:
 
 IMPORTANT: Return ONLY valid JSON array. No explanations, no markdown, just pure JSON.
 
+UpsellEngine Rule Schema (EXACT format required):
+{
+  "name": "Rule Name",
+  "description": "Optional description",
+  "trigger_type": "category" | "cart_value" | "time_based",
+  "trigger_conditions": {
+    // Varies by trigger_type (see details below)
+  },
+  "target_products": ["product_id_1", "product_id_2"],
+  "ai_copy_id": "optional_template_id",
+  "display_type": "popup" | "cart" | "checkout",
+  "display_settings": {},
+  "priority": 0,
+  "status": "draft" | "active" | "inactive",
+  "use_ai": false
+}
+
+Trigger Types:
+1. Cart Value: {"cart_value_operator": "greater_than"|"less_than"|"between", "cart_value": 100.00, "cart_value_min": 50.00, "cart_value_max": 200.00}
+2. Category: {"category": "Electronics", "category_operator": "contains"|"equals"|"not_contains"}
+3. Time-based: {"time_on_site_operator": "greater_than"|"less_than"|"equals"|"between", "time_on_site_min": 60, "time_on_site_max": 300}
+
 Example format:
 [
   {
-    "name": "Rule Name",
-    "description": "Description",
+    "name": "High-Value Cart Upsell",
+    "description": "Show premium products when cart value exceeds $100",
     "trigger_type": "cart_value",
-    "trigger_conditions": {"cart_value_operator": "greater_than", "cart_value": 100},
-    "actions": {"action_type": "show_campaign", "campaign_id": "premium_upsell"},
-    "priority": 5,
-    "expected_impact": "high",
-    "implementation_notes": "Notes"
+    "trigger_conditions": {
+      "cart_value_operator": "greater_than",
+      "cart_value": 100.00
+    },
+    "target_products": ["product_id_1", "product_id_2"],
+    "display_type": "popup",
+    "display_settings": {},
+    "priority": 4,
+    "status": "draft"
   }
 ]"""),
-            ("user", f"""Based on this business data, create 3-5 specific upsell rules:
+            ("user", f"""Based on this business data, create 5-7 diverse upsell rules:
 
 BUSINESS DATA:
 - Product Price Range: ${data_analysis['price_range']['min']} - ${data_analysis['price_range']['max']} (avg: ${data_analysis['price_range']['average']})
@@ -447,12 +473,15 @@ BUSINESS DATA:
 - Sample Products: {data_analysis['sample_products']}
 - Order Patterns: {data_analysis['order_patterns']}
 
-Create rules that:
-1. Use actual price thresholds based on the data
-2. Target specific product categories or price points
-3. Address real customer behavior patterns
-4. Have realistic priority levels (1-10)
-5. Include specific implementation notes
+Create a MIX of rule types:
+1. 2-3 cart_value rules (different thresholds: entry-level, mid-range, premium)
+2. 1-2 category rules (if different product categories exist)
+3. 1-2 time_based rules (engagement, abandonment recovery)
+4. Use actual price thresholds and business data
+5. Include target_products array with product IDs
+6. Use correct trigger_conditions format for each type
+7. Set appropriate display_type (popup/cart/checkout)
+8. Vary priority levels (3-9)
 
 Return ONLY the JSON array."""),
         ])
@@ -476,14 +505,18 @@ Return ONLY the JSON array."""),
             if isinstance(rules, list) and len(rules) > 0:
                 logger.info(f"Successfully generated {len(rules)} AI-driven rules")
                 
-                # Log the exact JSON structure being returned
-                for i, rule in enumerate(rules):
-                    logger.info(f"Rule {i+1} JSON structure: {json.dumps(rule, indent=2)}")
-                    console.log('🎯 Using Coral agent rule:', rule)
-                    console.log('🎯 Full trigger_conditions:', JSON.stringify(rule.trigger_conditions, null, 2))
-                    console.log('🎯 Full rule JSON:', JSON.stringify(rule, null, 2))
+                # Process each rule to ensure it matches UpsellEngine schema
+                processed_rules = []
+                for rule in rules:
+                    processed_rule = self._process_rule_for_upsell_engine(rule, data_analysis, data.get('shopify_products', []))
+                    if processed_rule:
+                        processed_rules.append(processed_rule)
                 
-                return rules
+                # Log the exact JSON structure being returned
+                for i, rule in enumerate(processed_rules):
+                    logger.info(f"Rule {i+1} JSON structure: {json.dumps(rule, indent=2)}")
+                
+                return processed_rules
             else:
                 logger.warning("AI returned empty or invalid rules, using data-driven fallback")
                 return self._generate_data_driven_rules(data)
@@ -492,6 +525,86 @@ Return ONLY the JSON array."""),
             logger.error(f"Error generating AI rules: {str(e)}")
             logger.info("Falling back to data-driven rule generation")
             return self._generate_data_driven_rules(data)
+    
+    def _process_rule_for_upsell_engine(self, rule: Dict[str, Any], analysis: Dict[str, Any], products: List[Dict]) -> Dict[str, Any]:
+        """Process AI-generated rule to match UpsellEngine schema exactly"""
+        
+        # Ensure required fields are present
+        processed_rule = {
+            "name": rule.get("name", "AI Generated Rule"),
+            "description": rule.get("description", ""),
+            "trigger_type": rule.get("trigger_type", "cart_value"),
+            "trigger_conditions": rule.get("trigger_conditions", {}),
+            "target_products": rule.get("target_products", []),
+            "display_type": rule.get("display_type", "popup"),
+            "display_settings": rule.get("display_settings", {}),
+            "priority": rule.get("priority", 5),
+            "status": rule.get("status", "draft"),
+            "use_ai": rule.get("use_ai", True)
+        }
+        
+        # Add ai_copy_id if not present
+        if "ai_copy_id" not in processed_rule:
+            processed_rule["ai_copy_id"] = None
+        
+        # Ensure target_products is populated if empty
+        if not processed_rule["target_products"]:
+            processed_rule["target_products"] = self._select_target_products(
+                products, 
+                processed_rule["trigger_type"], 
+                processed_rule["trigger_conditions"], 
+                analysis
+            )
+        
+        # Validate trigger_conditions format
+        processed_rule["trigger_conditions"] = self._validate_trigger_conditions(
+            processed_rule["trigger_type"], 
+            processed_rule["trigger_conditions"]
+        )
+        
+        return processed_rule
+    
+    def _validate_trigger_conditions(self, trigger_type: str, conditions: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and format trigger_conditions to match UpsellEngine schema"""
+        
+        if trigger_type == "cart_value":
+            # Ensure cart value conditions are properly formatted
+            validated = {
+                "cart_value_operator": conditions.get("cart_value_operator", "greater_than"),
+                "cart_value": conditions.get("cart_value", 100.00)
+            }
+            
+            # Add min/max for between operator
+            if validated["cart_value_operator"] == "between":
+                validated["cart_value_min"] = conditions.get("cart_value_min", 50.00)
+                validated["cart_value_max"] = conditions.get("cart_value_max", 200.00)
+            
+            return validated
+            
+        elif trigger_type == "category":
+            return {
+                "category": conditions.get("category", "Electronics"),
+                "category_operator": conditions.get("category_operator", "contains")
+            }
+            
+        elif trigger_type == "time_based":
+            validated = {
+                "time_on_site_operator": conditions.get("time_on_site_operator", "greater_than"),
+                "time_on_site_min": conditions.get("time_on_site_min", 60)
+            }
+            
+            # Add max for between operator
+            if validated["time_on_site_operator"] == "between":
+                validated["time_on_site_max"] = conditions.get("time_on_site_max", 300)
+            
+            return validated
+            
+        else:
+            # Default to cart_value
+            return {
+                "cart_value_operator": "greater_than",
+                "cart_value": 100.00
+            }
     
     def _analyze_data_for_rules(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze actual data to create data-driven insights"""
@@ -590,6 +703,19 @@ Return ONLY the JSON array."""),
             selected_products = [p['id'] for p in mid_products[:3]]
             logger.info(f"Selected time-based products: {selected_products}")
             return selected_products
+        elif rule_type == "category":
+            # For category rules, select products from different categories
+            target_category = conditions.get('category', 'general')
+            category_products = [p for p in available_products if p['category'] != target_category]
+            if category_products:
+                selected_products = [p['id'] for p in category_products[:2]]
+                logger.info(f"Selected category cross-sell products: {selected_products}")
+                return selected_products
+            else:
+                # Fallback to general products
+                selected_products = [p['id'] for p in available_products[:2]]
+                logger.info(f"Selected fallback category products: {selected_products}")
+                return selected_products
         else:
             selected_products = [p['id'] for p in available_products[:3]]
             logger.info(f"Selected default products: {selected_products}")
@@ -624,20 +750,19 @@ Return ONLY the JSON array."""),
                 "cart_value_operator": "greater_than",
                 "cart_value": cart_threshold
             }
-            logger.info(f"Cart Completion trigger_conditions: {conditions}")
+            logger.info(f"Premium Product Upsell trigger_conditions: {conditions}")
             rules.append({
                 "name": rule_name,
                 "description": f"Target customers with high-value carts to promote premium ${analysis['price_range']['max']} products",
                 "trigger_type": "cart_value",
                 "trigger_conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
-                "actions": {
-                    "action_type": "show_campaign",
-                    "campaign_id": "premium_product_upsell"
-                },
+                "ai_copy_id": None,
+                "display_type": "popup",
+                "display_settings": {},
                 "priority": 8,
-                "expected_impact": "high",
-                "implementation_notes": f"Target customers spending ${cart_threshold}+ to promote premium ${analysis['price_range']['max']} products"
+                "status": "draft",
+                "use_ai": False
             })
         
         # Rule 2: Mid-Range Cart Completion (based on average product price)
@@ -656,13 +781,12 @@ Return ONLY the JSON array."""),
                 "trigger_type": "cart_value",
                 "trigger_conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
-                "actions": {
-                    "action_type": "show_campaign",
-                    "campaign_id": "cart_completion_upsell"
-                },
+                "ai_copy_id": None,
+                "display_type": "popup",
+                "display_settings": {},
                 "priority": 6,
-                "expected_impact": "medium",
-                "implementation_notes": f"Trigger when cart exceeds ${analysis['price_range']['average']:.0f} (average product price)"
+                "status": "draft",
+                "use_ai": False
             })
         
         # Rule 3: Entry-Level Upgrade (based on minimum price)
@@ -673,22 +797,22 @@ Return ONLY the JSON array."""),
             logger.info(f"Generating Entry-Level Upgrade rule with cart range: ${min_threshold}-${max_threshold}")
             conditions = {
                 "cart_value_operator": "between",
-                "cart_value": [min_threshold, max_threshold]
+                "cart_value_min": min_threshold,
+                "cart_value_max": max_threshold
             }
             logger.info(f"Entry-Level Upgrade trigger_conditions: {conditions}")
             rules.append({
                 "name": rule_name,
-                "description": f"Upgrade customers from ${analysis['price_range']['min']} items to ${analysis['price_range']['average']:.0f} average products",
+                "description": f"Upgrade customers from ${analysis['price_range']['min']} to ${analysis['price_range']['average']:.0f} average products",
                 "trigger_type": "cart_value",
                 "trigger_conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
-                "actions": {
-                    "action_type": "show_campaign",
-                    "campaign_id": "entry_level_upgrade"
-                },
+                "ai_copy_id": None,
+                "display_type": "popup",
+                "display_settings": {},
                 "priority": 5,
-                "expected_impact": "medium",
-                "implementation_notes": f"Target customers with ${analysis['price_range']['min']}-${int(analysis['price_range']['average'] * 0.8)} carts for upgrades"
+                "status": "draft",
+                "use_ai": False
             })
         
         # Rule 4: High-Value Customer (based on order history)
@@ -707,13 +831,12 @@ Return ONLY the JSON array."""),
                 "trigger_type": "cart_value",
                 "trigger_conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
-                "actions": {
-                    "action_type": "show_campaign",
-                    "campaign_id": "high_value_customer_upsell"
-                },
+                "ai_copy_id": None,
+                "display_type": "popup",
+                "display_settings": {},
                 "priority": 7,
-                "expected_impact": "high",
-                "implementation_notes": f"Target customers spending above your ${analysis['order_patterns']['avg_order_value']:.0f} average order value"
+                "status": "draft",
+                "use_ai": False
             })
         
         # Rule 5: Cart Abandonment Recovery (based on actual abandonment rate)
@@ -731,13 +854,12 @@ Return ONLY the JSON array."""),
                 "trigger_type": "time_based",
                 "trigger_conditions": conditions,
                 "target_products": self._select_target_products(products, "time_based", conditions, analysis),
-                "actions": {
-                    "action_type": "show_campaign",
-                    "campaign_id": "abandonment_recovery"
-                },
+                "ai_copy_id": None,
+                "display_type": "popup",
+                "display_settings": {},
                 "priority": 9,
-                "expected_impact": "high",
-                "implementation_notes": f"Target customers who spend 5+ minutes on site with {analysis['cart_patterns']['abandonment_rate']:.1%} abandonment rate"
+                "status": "draft",
+                "use_ai": False
             })
         
         # Rule 6: Product Category Upsell (if we have different product categories)
@@ -759,16 +881,41 @@ Return ONLY the JSON array."""),
                         "trigger_type": "cart_value",
                         "trigger_conditions": conditions,
                         "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
-                        "actions": {
-                            "action_type": "show_campaign",
-                            "campaign_id": "category_cross_sell"
-                        },
+                        "ai_copy_id": None,
+                        "display_type": "popup",
+                        "display_settings": {},
                         "priority": 4,
-                        "expected_impact": "medium",
-                        "implementation_notes": f"Cross-sell between {categories[0]} and {categories[1]} product categories"
+                        "status": "draft",
+                        "use_ai": False
                     })
         
-        # Rule 7: Seasonal/Time-based Rule (if no other rules generated)
+        # Rule 7: Category-Based Rule (if we have product categories)
+        if len(products) > 2:
+            categories = list(set([p.get('product_type', 'general') for p in products if p.get('product_type')]))
+            if len(categories) > 1:
+                rule_name = f"Category Engagement ({categories[0]})"
+                if rule_name not in existing_rule_names:
+                    logger.info(f"Generating Category Engagement rule for {categories[0]}")
+                    conditions = {
+                        "category": categories[0],
+                        "category_operator": "contains"
+                    }
+                    logger.info(f"Category Engagement trigger_conditions: {conditions}")
+                    rules.append({
+                        "name": rule_name,
+                        "description": f"Engage customers browsing {categories[0]} products",
+                        "trigger_type": "category",
+                        "trigger_conditions": conditions,
+                        "target_products": self._select_target_products(products, "category", conditions, analysis),
+                        "ai_copy_id": None,
+                        "display_type": "popup",
+                        "display_settings": {},
+                        "priority": 5,
+                        "status": "draft",
+                        "use_ai": False
+                    })
+        
+        # Rule 8: Seasonal/Time-based Rule (if no other rules generated)
         if len(rules) == 0:
             rule_name = "Time-Based Engagement"
             if rule_name not in existing_rule_names:
@@ -784,13 +931,12 @@ Return ONLY the JSON array."""),
                     "trigger_type": "time_based",
                     "trigger_conditions": conditions,
                     "target_products": self._select_target_products(products, "time_based", conditions, analysis),
-                    "actions": {
-                        "action_type": "show_campaign",
-                        "campaign_id": "time_based_engagement"
-                    },
+                    "ai_copy_id": None,
+                    "display_type": "popup",
+                    "display_settings": {},
                     "priority": 3,
-                    "expected_impact": "medium",
-                    "implementation_notes": "Engage customers who show browsing interest (3+ minutes)"
+                    "status": "draft",
+                    "use_ai": False
                 })
         
         logger.info(f"Generated {len(rules)} data-driven rules with target products based on actual business data")
