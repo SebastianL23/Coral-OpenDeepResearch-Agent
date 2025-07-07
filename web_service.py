@@ -429,7 +429,7 @@ Example format:
     "name": "Rule Name",
     "description": "Description",
     "trigger_type": "cart_value",
-    "trigger_conditions": {"cart_value_operator", "cart_value_operator": "greater_than", "cart_value": 100},
+    "trigger_conditions": {"cart_value_operator": "greater_than", "cart_value": 100},
     "actions": {"action_type": "show_campaign", "campaign_id": "premium_upsell"},
     "priority": 5,
     "expected_impact": "high",
@@ -534,6 +534,7 @@ Return ONLY the JSON array."""),
     def _select_target_products(self, products: List[Dict], rule_type: str, conditions: Dict, analysis: Dict) -> List[str]:
         """Select appropriate target products based on rule type and conditions"""
         if not products:
+            logger.warning("No products available for target selection")
             return []
         available_products = [
             {
@@ -545,42 +546,68 @@ Return ONLY the JSON array."""),
             for p in products if p.get('id') and p.get('price')
         ]
         if not available_products:
+            logger.warning("No valid products with ID and price found")
             return []
         available_products.sort(key=lambda x: x['price'])
+        logger.info(f"Available products for selection: {len(available_products)} products")
+        logger.info(f"Product price range: ${available_products[0]['price']} - ${available_products[-1]['price']}")
+        
         if rule_type == "cart_value":
             # Use the correct key for cart value
             cart_threshold = conditions.get('cart_value', 0)
             if isinstance(cart_threshold, list):
                 cart_threshold = cart_threshold[-1]  # Use upper bound for between
+            logger.info(f"Cart threshold for product selection: ${cart_threshold}")
+            logger.info(f"Average product price: ${analysis['price_range']['average']}")
+            
             if cart_threshold > analysis['price_range']['average'] * 1.2:
                 premium_products = [p for p in available_products if p['price'] > analysis['price_range']['average']]
-                return [p['id'] for p in premium_products[:2]]
+                selected_products = [p['id'] for p in premium_products[:2]]
+                logger.info(f"Selected premium products: {selected_products}")
+                return selected_products
             elif cart_threshold > analysis['price_range']['average'] * 0.8:
                 mid_products = [p for p in available_products 
                               if analysis['price_range']['average'] * 0.6 <= p['price'] <= analysis['price_range']['average'] * 1.4]
-                return [p['id'] for p in mid_products[:3]]
+                selected_products = [p['id'] for p in mid_products[:3]]
+                logger.info(f"Selected mid-range products: {selected_products}")
+                return selected_products
             else:
                 entry_products = [p for p in available_products if p['price'] <= analysis['price_range']['average'] * 0.8]
-                return [p['id'] for p in entry_products[:2]]
+                selected_products = [p['id'] for p in entry_products[:2]]
+                logger.info(f"Selected entry-level products: {selected_products}")
+                return selected_products
         elif rule_type == "time_based":
             mid_products = [p for p in available_products 
                            if analysis['price_range']['average'] * 0.5 <= p['price'] <= analysis['price_range']['average'] * 1.5]
-            return [p['id'] for p in mid_products[:3]]
+            selected_products = [p['id'] for p in mid_products[:3]]
+            logger.info(f"Selected time-based products: {selected_products}")
+            return selected_products
         else:
-            return [p['id'] for p in available_products[:3]]
+            selected_products = [p['id'] for p in available_products[:3]]
+            logger.info(f"Selected default products: {selected_products}")
+            return selected_products
     
     def _generate_data_driven_rules(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate rules based on actual data analysis - no generic fallbacks"""
         
         analysis = self._analyze_data_for_rules(data)
         products = data.get('shopify_products', [])
+        
+        # Add debugging logs
+        logger.info(f"Data analysis for rules: {analysis}")
+        logger.info(f"Number of products: {len(products)}")
+        if products:
+            logger.info(f"Sample product: {products[0]}")
+        
         rules = []
         
         # Rule 1: Premium Product Upsell (based on actual max price)
         if analysis['price_range']['max'] > 100:
+            cart_threshold = int(analysis['price_range']['average'] * 1.5)
+            logger.info(f"Generating Premium Product Upsell rule with cart threshold: ${cart_threshold}")
             conditions = {
                 "cart_value_operator": "greater_than",
-                "cart_value": int(analysis['price_range']['average'] * 1.5)
+                "cart_value": cart_threshold
             }
             rules.append({
                 "name": f"Premium Product Upsell (${analysis['price_range']['max']})",
@@ -594,14 +621,16 @@ Return ONLY the JSON array."""),
                 },
                 "priority": 8,
                 "expected_impact": "high",
-                "implementation_notes": f"Target customers spending ${int(analysis['price_range']['average'] * 1.5)}+ to promote premium ${analysis['price_range']['max']} products"
+                "implementation_notes": f"Target customers spending ${cart_threshold}+ to promote premium ${analysis['price_range']['max']} products"
             })
         
         # Rule 2: Mid-Range Cart Completion (based on average product price)
         if analysis['price_range']['average'] > 0:
+            cart_threshold = int(analysis['price_range']['average'])
+            logger.info(f"Generating Cart Completion rule with cart threshold: ${cart_threshold}")
             conditions = {
                 "cart_value_operator": "greater_than",
-                "cart_value": int(analysis['price_range']['average'])
+                "cart_value": cart_threshold
             }
             rules.append({
                 "name": f"Cart Completion (${analysis['price_range']['average']:.0f} threshold)",
@@ -620,9 +649,12 @@ Return ONLY the JSON array."""),
         
         # Rule 3: Entry-Level Upgrade (based on minimum price)
         if analysis['price_range']['min'] > 0:
+            min_threshold = analysis['price_range']['min']
+            max_threshold = int(analysis['price_range']['average'] * 0.8)
+            logger.info(f"Generating Entry-Level Upgrade rule with cart range: ${min_threshold}-${max_threshold}")
             conditions = {
                 "cart_value_operator": "between",
-                "cart_value": [analysis['price_range']['min'], int(analysis['price_range']['average'] * 0.8)]
+                "cart_value": [min_threshold, max_threshold]
             }
             rules.append({
                 "name": f"Entry-Level Upgrade (${analysis['price_range']['min']} → ${analysis['price_range']['average']:.0f})",
@@ -641,9 +673,11 @@ Return ONLY the JSON array."""),
         
         # Rule 4: High-Value Customer (based on order history)
         if analysis['order_patterns']['avg_order_value'] > 0:
+            cart_threshold = int(analysis['order_patterns']['avg_order_value'])
+            logger.info(f"Generating High-Value Customer rule with cart threshold: ${cart_threshold}")
             conditions = {
                 "cart_value_operator": "greater_than",
-                "cart_value": int(analysis['order_patterns']['avg_order_value'])
+                "cart_value": cart_threshold
             }
             rules.append({
                 "name": f"High-Value Customer (${analysis['order_patterns']['avg_order_value']:.0f} AOV)",
@@ -662,6 +696,7 @@ Return ONLY the JSON array."""),
         
         # Rule 5: Cart Abandonment Recovery (based on actual abandonment rate)
         if analysis['cart_patterns']['abandonment_rate'] > 0.3:  # If abandonment rate > 30%
+            logger.info(f"Generating Cart Abandonment Recovery rule with abandonment rate: {analysis['cart_patterns']['abandonment_rate']:.1%}")
             conditions = {
                 "time_on_site_operator": "greater_than",
                 "time_on_site_min": 300  # 5 minutes
