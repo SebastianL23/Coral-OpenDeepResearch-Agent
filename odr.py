@@ -38,7 +38,8 @@ class OpenDeepResearch:
                 "planner_model": "llama3-70b-8192",
                 "writer_provider": "groq",
                 "writer_model": "llama3-70b-8192",
-                "max_search_depth": 1,
+                "max_search_depth": 0,
+                "number_of_queries": 1,
                 "report_structure": self.REPORT_STRUCTURE,
             }
         }
