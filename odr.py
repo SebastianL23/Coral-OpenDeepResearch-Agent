@@ -33,7 +33,7 @@ class OpenDeepResearch:
         thread = {
             "configurable": {
                 "thread_id": str(uuid.uuid4()),
-                "search_api": "linkup",
+                "search_api": "duckduckgo",
                 "planner_provider": "groq",
                 "planner_model": "llama3-70b-8192",
                 "writer_provider": "groq",
