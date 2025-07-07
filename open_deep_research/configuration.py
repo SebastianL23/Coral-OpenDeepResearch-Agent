@@ -38,8 +38,8 @@ class Configuration:
     search_api_config: Optional[Dict[str, Any]] = None
     
     # Graph-specific configuration
-    number_of_queries: int = 2 # Number of search queries to generate per iteration
-    max_search_depth: int = 2 # Maximum number of reflection + search iterations
+    number_of_queries: int = 1 # Reduced from 2 to 1
+    max_search_depth: int = 0 # Reduced from 2 to 0
     planner_provider: str = "groq"  # Changed from "anthropic" to "groq"
     planner_model: str = "llama3-70b-8192" # Changed from "claude-3-7-sonnet-latest" to "llama3-70b-8192"
     planner_model_kwargs: Optional[Dict[str, Any]] = None # kwargs for planner_model
