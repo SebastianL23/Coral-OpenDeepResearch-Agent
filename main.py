@@ -75,9 +75,9 @@ Execute this workflow continuously to serve research requests from other agents.
     ])
 
     model = init_chat_model(
-        model=os.getenv("MODEL_NAME", "gpt-4.1"),
-        model_provider=os.getenv("MODEL_PROVIDER", "openai"),
-        api_key=os.getenv("OPENAI_API_KEY"),
+        model=os.getenv("MODEL_NAME", "llama3-70b-8192"),
+        model_provider=os.getenv("MODEL_PROVIDER", "groq"),
+        api_key=os.getenv("GROQ_API_KEY"),
         temperature=os.getenv("MODEL_TEMPERATURE", "0.1"),
         max_tokens=os.getenv("MODEL_TOKEN", "8000")
     )
