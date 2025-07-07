@@ -533,11 +533,8 @@ Return ONLY the JSON array."""),
     
     def _select_target_products(self, products: List[Dict], rule_type: str, conditions: Dict, analysis: Dict) -> List[str]:
         """Select appropriate target products based on rule type and conditions"""
-        
         if not products:
             return []
-        
-        # Get product IDs and prices
         available_products = [
             {
                 'id': p.get('id'),
@@ -547,41 +544,30 @@ Return ONLY the JSON array."""),
             }
             for p in products if p.get('id') and p.get('price')
         ]
-        
         if not available_products:
             return []
-        
-        # Sort products by price for intelligent selection
         available_products.sort(key=lambda x: x['price'])
-        
         if rule_type == "cart_value":
-            cart_threshold = conditions.get('value', 0)
-            
+            # Use the correct key for cart value
+            cart_threshold = conditions.get('cart_value', 0)
+            if isinstance(cart_threshold, list):
+                cart_threshold = cart_threshold[-1]  # Use upper bound for between
             if cart_threshold > analysis['price_range']['average'] * 1.2:
-                # High-value cart: suggest premium products
                 premium_products = [p for p in available_products if p['price'] > analysis['price_range']['average']]
-                return [p['id'] for p in premium_products[:2]]  # Top 2 premium products
-            
+                return [p['id'] for p in premium_products[:2]]
             elif cart_threshold > analysis['price_range']['average'] * 0.8:
-                # Mid-value cart: suggest mid-range products
                 mid_products = [p for p in available_products 
                               if analysis['price_range']['average'] * 0.6 <= p['price'] <= analysis['price_range']['average'] * 1.4]
-                return [p['id'] for p in mid_products[:3]]  # Top 3 mid-range products
-            
+                return [p['id'] for p in mid_products[:3]]
             else:
-                # Low-value cart: suggest entry-level products
                 entry_products = [p for p in available_products if p['price'] <= analysis['price_range']['average'] * 0.8]
-                return [p['id'] for p in entry_products[:2]]  # Top 2 entry-level products
-        
+                return [p['id'] for p in entry_products[:2]]
         elif rule_type == "time_based":
-            # Time-based rules: suggest popular/mid-range products
             mid_products = [p for p in available_products 
                            if analysis['price_range']['average'] * 0.5 <= p['price'] <= analysis['price_range']['average'] * 1.5]
-            return [p['id'] for p in mid_products[:3]]  # Top 3 mid-range products
-        
+            return [p['id'] for p in mid_products[:3]]
         else:
-            # Default: suggest a mix of products
-            return [p['id'] for p in available_products[:3]]  # Top 3 products
+            return [p['id'] for p in available_products[:3]]
     
     def _generate_data_driven_rules(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate rules based on actual data analysis - no generic fallbacks"""
@@ -596,12 +582,11 @@ Return ONLY the JSON array."""),
                 "cart_value_operator": "greater_than",
                 "cart_value": int(analysis['price_range']['average'] * 1.5)
             }
-            
             rules.append({
                 "name": f"Premium Product Upsell (${analysis['price_range']['max']})",
                 "description": f"Target customers with high-value carts to promote premium ${analysis['price_range']['max']} products",
                 "trigger_type": "cart_value",
-                "conditions": conditions,
+                "trigger_conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
                 "actions": {
                     "action_type": "show_campaign",
@@ -618,12 +603,11 @@ Return ONLY the JSON array."""),
                 "cart_value_operator": "greater_than",
                 "cart_value": int(analysis['price_range']['average'])
             }
-            
             rules.append({
                 "name": f"Cart Completion (${analysis['price_range']['average']:.0f} threshold)",
                 "description": f"Encourage customers to add one more item when cart reaches ${analysis['price_range']['average']:.0f}",
                 "trigger_type": "cart_value",
-                "conditions": conditions,
+                "trigger_conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
                 "actions": {
                     "action_type": "show_campaign",
@@ -640,12 +624,11 @@ Return ONLY the JSON array."""),
                 "cart_value_operator": "between",
                 "cart_value": [analysis['price_range']['min'], int(analysis['price_range']['average'] * 0.8)]
             }
-            
             rules.append({
                 "name": f"Entry-Level Upgrade (${analysis['price_range']['min']} → ${analysis['price_range']['average']:.0f})",
                 "description": f"Upgrade customers from ${analysis['price_range']['min']} items to ${analysis['price_range']['average']:.0f} average products",
                 "trigger_type": "cart_value",
-                "conditions": conditions,
+                "trigger_conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
                 "actions": {
                     "action_type": "show_campaign",
@@ -662,12 +645,11 @@ Return ONLY the JSON array."""),
                 "cart_value_operator": "greater_than",
                 "cart_value": int(analysis['order_patterns']['avg_order_value'])
             }
-            
             rules.append({
                 "name": f"High-Value Customer (${analysis['order_patterns']['avg_order_value']:.0f} AOV)",
                 "description": f"Target customers with above-average order values of ${analysis['order_patterns']['avg_order_value']:.0f}",
                 "trigger_type": "cart_value",
-                "conditions": conditions,
+                "trigger_conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
                 "actions": {
                     "action_type": "show_campaign",
@@ -684,12 +666,11 @@ Return ONLY the JSON array."""),
                 "time_on_site_operator": "greater_than",
                 "time_on_site_min": 300  # 5 minutes
             }
-            
             rules.append({
                 "name": "Cart Abandonment Recovery",
                 "description": f"Recover abandoned carts with {analysis['cart_patterns']['abandonment_rate']:.1%} abandonment rate",
                 "trigger_type": "time_based",
-                "conditions": conditions,
+                "trigger_conditions": conditions,
                 "target_products": self._select_target_products(products, "time_based", conditions, analysis),
                 "actions": {
                     "action_type": "show_campaign",
