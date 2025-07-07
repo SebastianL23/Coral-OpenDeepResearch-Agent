@@ -9,11 +9,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip install uv
 
-# Copy the Coral agent files
 COPY . .
-
-# Copy the integration-bridge files from parent directory
-COPY ../integration-bridge ./integration-bridge
 
 RUN uv sync --no-dev
 
