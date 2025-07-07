@@ -166,11 +166,10 @@ class CoralResearchAgent:
                 {
                     "name": "Demo Cart Value Rule",
                     "description": "Example rule for cart value upsells",
-                    "rule_type": "cart_value",
-                    "conditions": {
-                        "field": "cart_total",
-                        "operator": "greater_than",
-                        "value": 50
+                    "trigger_type": "cart_value",
+                    "trigger_conditions": {
+                        "cart_value_operator": "greater_than",
+                        "cart_value": 50
                     },
                     "actions": {
                         "action_type": "show_campaign",
@@ -429,8 +428,8 @@ Example format:
   {
     "name": "Rule Name",
     "description": "Description",
-    "rule_type": "cart_value",
-    "conditions": {"field": "cart_total", "operator": "greater_than", "value": 100},
+    "trigger_type": "cart_value",
+    "trigger_conditions": {"cart_value_operator", "cart_value_operator": "greater_than", "cart_value": 100},
     "actions": {"action_type": "show_campaign", "campaign_id": "premium_upsell"},
     "priority": 5,
     "expected_impact": "high",
@@ -594,15 +593,14 @@ Return ONLY the JSON array."""),
         # Rule 1: Premium Product Upsell (based on actual max price)
         if analysis['price_range']['max'] > 100:
             conditions = {
-                "field": "cart_total",
-                "operator": "greater_than",
-                "value": int(analysis['price_range']['average'] * 1.5)
+                "cart_value_operator": "greater_than",
+                "cart_value": int(analysis['price_range']['average'] * 1.5)
             }
             
             rules.append({
                 "name": f"Premium Product Upsell (${analysis['price_range']['max']})",
                 "description": f"Target customers with high-value carts to promote premium ${analysis['price_range']['max']} products",
-                "rule_type": "cart_value",
+                "trigger_type": "cart_value",
                 "conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
                 "actions": {
@@ -617,15 +615,14 @@ Return ONLY the JSON array."""),
         # Rule 2: Mid-Range Cart Completion (based on average product price)
         if analysis['price_range']['average'] > 0:
             conditions = {
-                "field": "cart_total",
-                "operator": "greater_than",
-                "value": int(analysis['price_range']['average'])
+                "cart_value_operator": "greater_than",
+                "cart_value": int(analysis['price_range']['average'])
             }
             
             rules.append({
                 "name": f"Cart Completion (${analysis['price_range']['average']:.0f} threshold)",
                 "description": f"Encourage customers to add one more item when cart reaches ${analysis['price_range']['average']:.0f}",
-                "rule_type": "cart_value",
+                "trigger_type": "cart_value",
                 "conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
                 "actions": {
@@ -640,15 +637,14 @@ Return ONLY the JSON array."""),
         # Rule 3: Entry-Level Upgrade (based on minimum price)
         if analysis['price_range']['min'] > 0:
             conditions = {
-                "field": "cart_total",
-                "operator": "between",
-                "value": [analysis['price_range']['min'], int(analysis['price_range']['average'] * 0.8)]
+                "cart_value_operator": "between",
+                "cart_value": [analysis['price_range']['min'], int(analysis['price_range']['average'] * 0.8)]
             }
             
             rules.append({
                 "name": f"Entry-Level Upgrade (${analysis['price_range']['min']} → ${analysis['price_range']['average']:.0f})",
                 "description": f"Upgrade customers from ${analysis['price_range']['min']} items to ${analysis['price_range']['average']:.0f} average products",
-                "rule_type": "cart_value",
+                "trigger_type": "cart_value",
                 "conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
                 "actions": {
@@ -663,15 +659,14 @@ Return ONLY the JSON array."""),
         # Rule 4: High-Value Customer (based on order history)
         if analysis['order_patterns']['avg_order_value'] > 0:
             conditions = {
-                "field": "cart_total",
-                "operator": "greater_than",
-                "value": int(analysis['order_patterns']['avg_order_value'])
+                "cart_value_operator": "greater_than",
+                "cart_value": int(analysis['order_patterns']['avg_order_value'])
             }
             
             rules.append({
                 "name": f"High-Value Customer (${analysis['order_patterns']['avg_order_value']:.0f} AOV)",
                 "description": f"Target customers with above-average order values of ${analysis['order_patterns']['avg_order_value']:.0f}",
-                "rule_type": "cart_value",
+                "trigger_type": "cart_value",
                 "conditions": conditions,
                 "target_products": self._select_target_products(products, "cart_value", conditions, analysis),
                 "actions": {
@@ -686,15 +681,14 @@ Return ONLY the JSON array."""),
         # Rule 5: Cart Abandonment Recovery (based on actual abandonment rate)
         if analysis['cart_patterns']['abandonment_rate'] > 0.3:  # If abandonment rate > 30%
             conditions = {
-                "field": "time_on_site",
-                "operator": "greater_than",
-                "value": 300  # 5 minutes
+                "time_on_site_operator": "greater_than",
+                "time_on_site_min": 300  # 5 minutes
             }
             
             rules.append({
                 "name": "Cart Abandonment Recovery",
                 "description": f"Recover abandoned carts with {analysis['cart_patterns']['abandonment_rate']:.1%} abandonment rate",
-                "rule_type": "time_based",
+                "trigger_type": "time_based",
                 "conditions": conditions,
                 "target_products": self._select_target_products(products, "time_based", conditions, analysis),
                 "actions": {
@@ -1116,11 +1110,10 @@ Return ONLY the JSON array."""),
             {
                 "name": "Cart Value Upsell",
                 "description": "Show upsell when cart value is above threshold",
-                "rule_type": "cart_value",
-                "conditions": {
-                    "field": "cart_total",
-                    "operator": "greater_than",
-                    "value": 50
+                "trigger_type": "cart_value",
+                "trigger_conditions": {
+                    "cart_value_operator": "greater_than",
+                    "cart_value": 50
                 },
                 "actions": {
                     "action_type": "show_campaign",
