@@ -8,3 +8,4 @@ uvx
 env
 env.fish
 __pyache__integration-bridge/.env.local
+integration-bridge/.env.local
