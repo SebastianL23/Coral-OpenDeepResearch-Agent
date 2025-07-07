@@ -40,11 +40,11 @@ class Configuration:
     # Graph-specific configuration
     number_of_queries: int = 2 # Number of search queries to generate per iteration
     max_search_depth: int = 2 # Maximum number of reflection + search iterations
-    planner_provider: str = "anthropic"  # Defaults to Anthropic as provider
-    planner_model: str = "claude-3-7-sonnet-latest" # Defaults to claude-3-7-sonnet-latest
+    planner_provider: str = "groq"  # Changed from "anthropic" to "groq"
+    planner_model: str = "llama3-70b-8192" # Changed from "claude-3-7-sonnet-latest" to "llama3-70b-8192"
     planner_model_kwargs: Optional[Dict[str, Any]] = None # kwargs for planner_model
-    writer_provider: str = "anthropic" # Defaults to Anthropic as provider
-    writer_model: str = "claude-3-5-sonnet-latest" # Defaults to claude-3-5-sonnet-latest
+    writer_provider: str = "groq" # Changed from "anthropic" to "groq"
+    writer_model: str = "llama3-70b-8192" # Changed from "claude-3-5-sonnet-latest" to "llama3-70b-8192"
     writer_model_kwargs: Optional[Dict[str, Any]] = None # kwargs for writer_model
     
     # Multi-agent specific configuration
