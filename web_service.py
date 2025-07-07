@@ -218,7 +218,6 @@ class CoralResearchAgent:
                 "total_products": 0,
                 "total_campaigns": 0,
                 "total_rules": 0,
-                "total_templates": 0,
                 "analysis_period_days": time_range_days,
                 "user_profile": {
                     "plan_type": "demo",
@@ -361,11 +360,11 @@ class CoralResearchAgent:
             Analyze the provided data and generate actionable insights for improving upsell performance.
             
             Focus on:
-            1. Product performance patterns
-            2. Campaign effectiveness
-            3. Rule optimization opportunities
-            4. Revenue optimization potential
-            5. Customer behavior insights
+            1. Customer behavior patterns from orders and cart events
+            2. Current upsell performance and campaign effectiveness
+            3. Product performance and bundling opportunities
+            4. Rule optimization opportunities
+            5. Revenue optimization potential
             
             Provide specific, actionable insights that can be used to create better upsell rules and campaigns."""),
             ("user", f"""Analyze this e-commerce data and provide insights:
@@ -374,21 +373,21 @@ class CoralResearchAgent:
             
             Generate insights in this JSON format:
             {{
-                "product_insights": [
+                "customer_behavior_insights": [
                     {{
                         "insight": "description",
                         "impact": "high/medium/low",
                         "action": "specific action to take"
                     }}
                 ],
-                "campaign_insights": [
+                "performance_insights": [
                     {{
                         "insight": "description", 
                         "impact": "high/medium/low",
                         "action": "specific action to take"
                     }}
                 ],
-                "rule_insights": [
+                "product_insights": [
                     {{
                         "insight": "description",
                         "impact": "high/medium/low", 
@@ -474,7 +473,7 @@ class CoralResearchAgent:
                 }}
             ]
             
-            Create 3-5 high-quality rules based on the actual data patterns you see."""")
+            Create 3-5 high-quality rules based on the actual data patterns you see.""")
         ])
         
         try:
@@ -578,18 +577,26 @@ class CoralResearchAgent:
     def _create_data_summary(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a summary of the data for analysis"""
         return {
-            "total_products": len(data.get('products', [])),
-            "total_campaigns": len(data.get('campaigns', [])),
-            "total_rules": len(data.get('rules', [])),
-            "total_templates": len(data.get('templates', [])),
-            "analysis_period_days": data.get('analysis_period_days', 30),
+            "customer_behavior": {
+                "total_orders": len(data.get('shopify_orders', [])),
+                "total_cart_events": len(data.get('cart_events', [])),
+                "analysis_period_days": data.get('analysis_period_days', 30)
+            },
+            "performance": {
+                "total_upsell_events": len(data.get('upsell_events', [])),
+                "total_campaigns": len(data.get('campaigns', [])),
+                "total_rules": len(data.get('upsell_rules', []))
+            },
+            "products": {
+                "total_products": len(data.get('shopify_products', [])),
+                "product_price_range": self._get_product_price_range(data.get('shopify_products', []))
+            },
             "user_profile": {
-                "plan_type": data.get('profile', {}).get('plan_type', 'unknown'),
-                "company_name": data.get('profile', {}).get('company_name', 'unknown')
+                "plan_type": data.get('profiles', {}).get('plan_type', 'unknown'),
+                "company_name": data.get('profiles', {}).get('company_name', 'unknown')
             },
             "campaign_status_breakdown": self._get_campaign_status_breakdown(data.get('campaigns', [])),
-            "rule_type_breakdown": self._get_rule_type_breakdown(data.get('rules', [])),
-            "product_price_range": self._get_product_price_range(data.get('products', []))
+            "rule_type_breakdown": self._get_rule_type_breakdown(data.get('upsell_rules', []))
         }
     
     def _get_campaign_status_breakdown(self, campaigns: List[Dict]) -> Dict[str, int]:
@@ -626,25 +633,25 @@ class CoralResearchAgent:
     def _generate_fallback_insights(self, data_summary: Dict[str, Any]) -> Dict[str, Any]:
         """Generate fallback insights when AI fails"""
         return {
+            "customer_behavior_insights": [
+                {
+                    "insight": f"Analyzing {data_summary.get('customer_behavior', {}).get('total_orders', 0)} orders for patterns",
+                    "impact": "medium",
+                    "action": "Review order patterns for upsell opportunities"
+                }
+            ],
+            "performance_insights": [
+                {
+                    "insight": f"You have {data_summary.get('performance', {}).get('total_campaigns', 0)} campaigns and {data_summary.get('performance', {}).get('total_rules', 0)} rules",
+                    "impact": "medium", 
+                    "action": "Analyze campaign and rule performance"
+                }
+            ],
             "product_insights": [
                 {
-                    "insight": f"You have {data_summary.get('total_products', 0)} products available for upsells",
+                    "insight": f"You have {data_summary.get('products', {}).get('total_products', 0)} products available for upsells",
                     "impact": "medium",
-                    "action": "Review product catalog for upsell opportunities"
-                }
-            ],
-            "campaign_insights": [
-                {
-                    "insight": f"You have {data_summary.get('total_campaigns', 0)} campaigns configured",
-                    "impact": "medium", 
-                    "action": "Analyze campaign performance and optimize"
-                }
-            ],
-            "rule_insights": [
-                {
-                    "insight": f"You have {data_summary.get('total_rules', 0)} upsell rules active",
-                    "impact": "medium",
-                    "action": "Review rule effectiveness and create new ones"
+                    "action": "Review product catalog for bundling opportunities"
                 }
             ],
             "revenue_opportunities": [
