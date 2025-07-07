@@ -1,0 +1,32 @@
+{
+  "name": "coral-upsell-integration-bridge",
+  "version": "1.0.0",
+  "description": "Integration bridge between Coral OpenDeepResearch Agent and UpsellEngine",
+  "type": "module",
+  "main": "orchestrator/index.js",
+  "scripts": {
+    "test": "node test-orchestrator.js",
+    "start": "next start",
+    "dev": "next dev",
+    "build": "next build",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "node": "^18.0.0"
+  },
+  "keywords": [
+    "coral",
+    "upsell",
+    "integration",
+    "multi-agent",
+    "ecommerce"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+} 
