@@ -34,19 +34,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Supabase client
-supabase_url = os.getenv("SUPABASE_URL")
+# Initialize Supabase client with error handling
+supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-supabase: Client = create_client(supabase_url, supabase_key)
 
-# Initialize Groq model
-model = init_chat_model(
-    model="llama3-70b-8192",
-    model_provider="groq",
-    api_key=os.getenv("GROQ_API_KEY"),
-    temperature=0.1,
-    max_tokens=4000
-)
+if not supabase_url or not supabase_key:
+    logger.warning("Supabase credentials not found. Running in demo mode.")
+    logger.warning(f"SUPABASE_URL: {'Set' if supabase_url else 'Missing'}")
+    logger.warning(f"SUPABASE_SERVICE_ROLE_KEY: {'Set' if supabase_key else 'Missing'}")
+    supabase = None
+else:
+    try:
+        supabase: Client = create_client(supabase_url, supabase_key)
+        logger.info("Supabase client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Supabase client: {str(e)}")
+        supabase = None
+
+# Initialize Groq model with error handling
+groq_api_key = os.getenv("GROQ_API_KEY")
+if not groq_api_key:
+    logger.error("GROQ_API_KEY not found. Please set the environment variable.")
+    model = None
+else:
+    try:
+        model = init_chat_model(
+            model="llama3-70b-8192",
+            model_provider="groq",
+            api_key=groq_api_key,
+            temperature=0.1,
+            max_tokens=4000
+        )
+        logger.info("Groq model initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Groq model: {str(e)}")
+        model = None
 
 class AnalysisRequest(BaseModel):
     user_id: str
@@ -65,10 +87,18 @@ class AnalysisResponse(BaseModel):
 class CoralResearchAgent:
     def __init__(self):
         self.model = model
+        self.supabase = supabase
         
     async def analyze_user_data(self, user_id: str, time_range_days: int = 30) -> Dict[str, Any]:
         """Analyze user's data and generate insights"""
         logger.info(f"Starting analysis for user {user_id}")
+        
+        # Check if we have required services
+        if not self.supabase:
+            return await self._generate_demo_analysis(user_id, time_range_days)
+        
+        if not self.model:
+            return await self._generate_fallback_analysis(user_id, time_range_days)
         
         # Get data from all relevant tables
         data = await self._fetch_user_data(user_id, time_range_days)
@@ -95,29 +125,150 @@ class CoralResearchAgent:
             "data_summary": self._create_data_summary(data)
         }
     
+    async def _generate_demo_analysis(self, user_id: str, time_range_days: int) -> Dict[str, Any]:
+        """Generate demo analysis when Supabase is not available"""
+        logger.info("Generating demo analysis (no Supabase connection)")
+        
+        return {
+            "user_id": user_id,
+            "analysis_timestamp": datetime.now().isoformat(),
+            "insights": {
+                "product_insights": [
+                    {
+                        "insight": "Demo mode: No real data available",
+                        "impact": "medium",
+                        "action": "Set up Supabase connection to get real insights"
+                    }
+                ],
+                "campaign_insights": [
+                    {
+                        "insight": "Demo mode: No campaign data available",
+                        "impact": "medium",
+                        "action": "Connect to Supabase to analyze campaigns"
+                    }
+                ],
+                "rule_insights": [
+                    {
+                        "insight": "Demo mode: No rule data available",
+                        "impact": "medium",
+                        "action": "Set up database connection for rule analysis"
+                    }
+                ],
+                "revenue_opportunities": [
+                    {
+                        "opportunity": "Connect to your database",
+                        "potential_impact": "Get real insights and recommendations",
+                        "implementation": "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables"
+                    }
+                ]
+            },
+            "rule_suggestions": [
+                {
+                    "name": "Demo Cart Value Rule",
+                    "description": "Example rule for cart value upsells",
+                    "rule_type": "cart_value",
+                    "conditions": {
+                        "field": "cart_total",
+                        "operator": "greater_than",
+                        "value": 50
+                    },
+                    "actions": {
+                        "action_type": "show_campaign",
+                        "campaign_id": "cart_value_upsell"
+                    },
+                    "priority": 5,
+                    "expected_impact": "medium",
+                    "implementation_notes": "This is a demo rule. Connect to Supabase for real suggestions."
+                }
+            ],
+            "campaign_suggestions": [
+                {
+                    "name": "Demo Exit Intent Campaign",
+                    "description": "Example exit intent campaign",
+                    "campaign_type": "popup",
+                    "trigger_type": "exit_intent",
+                    "trigger_delay": 0,
+                    "trigger_scroll_percentage": 50,
+                    "target_pages": ["/cart", "/checkout"],
+                    "excluded_pages": [],
+                    "settings": {
+                        "position": "center",
+                        "style": "modern"
+                    },
+                    "content": {
+                        "title": "Wait! Don't miss out!",
+                        "message": "Add one more item and get 10% off!",
+                        "cta_text": "Add to Cart",
+                        "offer": "10% off entire order"
+                    },
+                    "expected_impact": "medium",
+                    "implementation_notes": "This is a demo campaign. Connect to Supabase for real suggestions."
+                }
+            ],
+            "priority_actions": [
+                {
+                    "name": "Set Up Database Connection",
+                    "description": "Connect to Supabase to get real insights",
+                    "priority": "high",
+                    "action": "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables",
+                    "type": "setup"
+                }
+            ],
+            "data_summary": {
+                "total_products": 0,
+                "total_campaigns": 0,
+                "total_rules": 0,
+                "total_templates": 0,
+                "analysis_period_days": time_range_days,
+                "user_profile": {
+                    "plan_type": "demo",
+                    "company_name": "Demo User"
+                },
+                "campaign_status_breakdown": {},
+                "rule_type_breakdown": {},
+                "product_price_range": {"min": 0, "max": 0, "average": 0},
+                "mode": "demo"
+            }
+        }
+    
+    async def _generate_fallback_analysis(self, user_id: str, time_range_days: int) -> Dict[str, Any]:
+        """Generate fallback analysis when AI model is not available"""
+        logger.info("Generating fallback analysis (no AI model)")
+        
+        demo_result = await self._generate_demo_analysis(user_id, time_range_days)
+        demo_result["priority_actions"].append({
+            "name": "Set Up AI Model",
+            "description": "Connect to Groq for AI-powered insights",
+            "priority": "high",
+            "action": "Set GROQ_API_KEY environment variable",
+            "type": "setup"
+        })
+        
+        return demo_result
+    
     async def _fetch_user_data(self, user_id: str, time_range_days: int) -> Dict[str, Any]:
         """Fetch all relevant data for the user"""
         cutoff_date = datetime.now() - timedelta(days=time_range_days)
         
         try:
             # Fetch products
-            products_response = supabase.table('products').select('*').eq('user_id', user_id).execute()
+            products_response = self.supabase.table('products').select('*').eq('user_id', user_id).execute()
             products = products_response.data if products_response.data else []
             
             # Fetch campaigns
-            campaigns_response = supabase.table('campaigns').select('*').eq('user_id', user_id).execute()
+            campaigns_response = self.supabase.table('campaigns').select('*').eq('user_id', user_id).execute()
             campaigns = campaigns_response.data if campaigns_response.data else []
             
             # Fetch upsell rules
-            rules_response = supabase.table('upsell_rules').select('*').eq('user_id', user_id).execute()
+            rules_response = self.supabase.table('upsell_rules').select('*').eq('user_id', user_id).execute()
             rules = rules_response.data if rules_response.data else []
             
             # Fetch templates
-            templates_response = supabase.table('templates').select('*').eq('user_id', user_id).execute()
+            templates_response = self.supabase.table('templates').select('*').eq('user_id', user_id).execute()
             templates = templates_response.data if templates_response.data else []
             
             # Fetch user profile
-            profile_response = supabase.table('profiles').select('*').eq('id', user_id).execute()
+            profile_response = self.supabase.table('profiles').select('*').eq('id', user_id).execute()
             profile = profile_response.data[0] if profile_response.data else {}
             
             # Note: For now, we'll work with available data
@@ -479,12 +630,21 @@ async def root():
         "endpoints": {
             "POST /analyze": "Analyze user data and generate upsell insights",
             "GET /health": "Health check endpoint"
+        },
+        "environment": {
+            "supabase_connected": supabase is not None,
+            "groq_connected": model is not None
         }
     }
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "Coral Research Agent"}
+    return {
+        "status": "healthy", 
+        "service": "Coral Research Agent",
+        "supabase_connected": supabase is not None,
+        "groq_connected": model is not None
+    }
 
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_user_data(request: AnalysisRequest):
