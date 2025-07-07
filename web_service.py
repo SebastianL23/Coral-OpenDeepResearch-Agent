@@ -247,41 +247,104 @@ class CoralResearchAgent:
         return demo_result
     
     async def _fetch_user_data(self, user_id: str, time_range_days: int) -> Dict[str, Any]:
-        """Fetch all relevant data for the user"""
+        """Fetch all relevant data for the user in priority order"""
         cutoff_date = datetime.now() - timedelta(days=time_range_days)
         
         try:
-            # Fetch products
-            products_response = self.supabase.table('products').select('*').eq('user_id', user_id).execute()
-            products = products_response.data if products_response.data else []
-            
-            # Fetch campaigns
-            campaigns_response = self.supabase.table('campaigns').select('*').eq('user_id', user_id).execute()
-            campaigns = campaigns_response.data if campaigns_response.data else []
-            
-            # Fetch upsell rules
-            rules_response = self.supabase.table('upsell_rules').select('*').eq('user_id', user_id).execute()
-            rules = rules_response.data if rules_response.data else []
-            
-            # Fetch templates
-            templates_response = self.supabase.table('templates').select('*').eq('user_id', user_id).execute()
-            templates = templates_response.data if templates_response.data else []
-            
-            # Fetch user profile
-            profile_response = self.supabase.table('profiles').select('*').eq('id', user_id).execute()
-            profile = profile_response.data[0] if profile_response.data else {}
-            
-            # Note: For now, we'll work with available data
-            # In the future, you can add Shopify integration data here
-            
-            return {
-                "products": products,
-                "campaigns": campaigns,
-                "rules": rules,
-                "templates": templates,
-                "profile": profile,
+            data = {
+                "shopify_orders": [],
+                "cart_events": [],
+                "upsell_events": [],
+                "campaigns": [],
+                "shopify_products": [],
+                "upsell_rules": [],
+                "profiles": {},
                 "analysis_period_days": time_range_days
             }
+            
+            logger.info(f"Starting data fetch for user {user_id} (last {time_range_days} days)")
+            
+            # 1. CUSTOMER BEHAVIOR (Priority 1)
+            logger.info("1. Fetching customer behavior data...")
+            
+            # Shopify Orders
+            try:
+                orders_response = self.supabase.table('shopify_orders').select('*').eq('user_id', user_id).gte('created_at', cutoff_date.isoformat()).execute()
+                data["shopify_orders"] = orders_response.data if orders_response.data else []
+                logger.info(f"Found {len(data['shopify_orders'])} shopify_orders")
+            except Exception as e:
+                logger.warning(f"Could not fetch shopify_orders: {str(e)}")
+            
+            # Cart Events
+            try:
+                cart_events_response = self.supabase.table('cart_events').select('*').eq('user_id', user_id).gte('created_at', cutoff_date.isoformat()).execute()
+                data["cart_events"] = cart_events_response.data if cart_events_response.data else []
+                logger.info(f"Found {len(data['cart_events'])} cart_events")
+            except Exception as e:
+                logger.warning(f"Could not fetch cart_events: {str(e)}")
+            
+            # 2. CURRENT PERFORMANCE (Priority 2)
+            logger.info("2. Fetching current performance data...")
+            
+            # Upsell Events
+            try:
+                upsell_events_response = self.supabase.table('upsell_events').select('*').eq('user_id', user_id).gte('created_at', cutoff_date.isoformat()).execute()
+                data["upsell_events"] = upsell_events_response.data if upsell_events_response.data else []
+                logger.info(f"Found {len(data['upsell_events'])} upsell_events")
+            except Exception as e:
+                logger.warning(f"Could not fetch upsell_events: {str(e)}")
+            
+            # Campaigns
+            try:
+                campaigns_response = self.supabase.table('campaigns').select('*').eq('user_id', user_id).execute()
+                data["campaigns"] = campaigns_response.data if campaigns_response.data else []
+                logger.info(f"Found {len(data['campaigns'])} campaigns")
+            except Exception as e:
+                logger.warning(f"Could not fetch campaigns: {str(e)}")
+            
+            # 3. PRODUCT DATA (Priority 3)
+            logger.info("3. Fetching product data...")
+            
+            # Shopify Products
+            try:
+                products_response = self.supabase.table('shopify_products').select('*').eq('user_id', user_id).execute()
+                data["shopify_products"] = products_response.data if products_response.data else []
+                logger.info(f"Found {len(data['shopify_products'])} shopify_products")
+            except Exception as e:
+                logger.warning(f"Could not fetch shopify_products: {str(e)}")
+                # Try alternative table name
+                try:
+                    products_response = self.supabase.table('products').select('*').eq('user_id', user_id).execute()
+                    data["shopify_products"] = products_response.data if products_response.data else []
+                    logger.info(f"Found {len(data['shopify_products'])} products (alternative table)")
+                except Exception as e2:
+                    logger.warning(f"Could not fetch products either: {str(e2)}")
+            
+            # Additional data for context
+            logger.info("4. Fetching additional context data...")
+            
+            # Upsell Rules
+            try:
+                rules_response = self.supabase.table('upsell_rules').select('*').eq('user_id', user_id).execute()
+                data["upsell_rules"] = rules_response.data if rules_response.data else []
+                logger.info(f"Found {len(data['upsell_rules'])} upsell_rules")
+            except Exception as e:
+                logger.warning(f"Could not fetch upsell_rules: {str(e)}")
+            
+            # User Profile
+            try:
+                profile_response = self.supabase.table('profiles').select('*').eq('id', user_id).execute()
+                data["profiles"] = profile_response.data[0] if profile_response.data else {}
+                logger.info("Found user profile")
+            except Exception as e:
+                logger.warning(f"Could not fetch profile: {str(e)}")
+                data["profiles"] = {}
+            
+            # Summary
+            total_records = sum(len(v) for k, v in data.items() if isinstance(v, list))
+            logger.info(f"Data fetch completed. Total records: {total_records}")
+            
+            return data
             
         except Exception as e:
             logger.error(f"Error fetching data: {str(e)}")
@@ -351,44 +414,67 @@ class CoralResearchAgent:
             return self._generate_fallback_insights(data_summary)
     
     async def _generate_rule_suggestions(self, data: Dict[str, Any], insights: Dict[str, Any], user_id: str) -> List[Dict[str, Any]]:
-        """Generate specific upsell rule suggestions"""
+        """Generate specific upsell rule suggestions in UpsellEngine format"""
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an expert in creating upsell rules for e-commerce. 
-            Based on the data and insights provided, generate specific, actionable upsell rules.
+            Based on the customer behavior, performance data, and product data provided, generate specific, actionable upsell rules.
             
-            Each rule should be complete and ready to implement with:
-            - Clear conditions
-            - Specific actions
-            - Expected impact
-            - Implementation priority"""),
+            Each rule should be in the exact format expected by the UpsellEngine system.
+            
+            Rule Types:
+            - product_based: Triggered by specific products in cart
+            - cart_value: Triggered by cart total value
+            - customer_segment: Triggered by customer characteristics
+            - time_based: Triggered by time factors
+            
+            Focus on creating rules that will increase revenue based on the actual data patterns."""),
             ("user", f"""Create upsell rules based on this data and insights:
             
-            Data Summary: {json.dumps(self._create_data_summary(data), indent=2)}
+            Customer Behavior Data: {json.dumps({
+                'orders': len(data.get('shopify_orders', [])),
+                'cart_events': len(data.get('cart_events', [])),
+                'sample_orders': data.get('shopify_orders', [])[:3] if data.get('shopify_orders') else [],
+                'sample_cart_events': data.get('cart_events', [])[:3] if data.get('cart_events') else []
+            }, indent=2)}
+            
+            Performance Data: {json.dumps({
+                'upsell_events': len(data.get('upsell_events', [])),
+                'campaigns': len(data.get('campaigns', [])),
+                'existing_rules': len(data.get('upsell_rules', []))
+            }, indent=2)}
+            
+            Product Data: {json.dumps({
+                'products': len(data.get('shopify_products', [])),
+                'sample_products': data.get('shopify_products', [])[:3] if data.get('shopify_products') else []
+            }, indent=2)}
+            
             Insights: {json.dumps(insights, indent=2)}
             
-            Generate rules in this JSON format:
+            Generate rules in this EXACT JSON format for UpsellEngine:
             [
                 {{
-                    "name": "Rule name",
-                    "description": "What this rule does",
+                    "name": "Descriptive rule name",
+                    "description": "Clear description of what this rule does",
                     "rule_type": "product_based/cart_value/customer_segment/time_based",
                     "conditions": {{
-                        "field": "value",
-                        "operator": "equals/greater_than/contains/etc",
-                        "value": "specific value"
+                        "field": "cart_total/product_id/customer_segment/time",
+                        "operator": "equals/greater_than/less_than/contains/in",
+                        "value": "specific value or array"
                     }},
                     "actions": {{
                         "action_type": "show_campaign/add_product/apply_discount",
-                        "campaign_id": "campaign to show",
-                        "products": ["product_ids"],
-                        "discount": "discount amount"
+                        "campaign_id": "campaign_id_to_show",
+                        "products": ["product_ids_to_add"],
+                        "discount": "discount_percentage_or_amount"
                     }},
                     "priority": 1-10,
                     "expected_impact": "high/medium/low",
-                    "implementation_notes": "How to implement this rule"
+                    "implementation_notes": "Specific notes on how to implement this rule"
                 }}
-            ]""")
+            ]
+            
+            Create 3-5 high-quality rules based on the actual data patterns you see."""")
         ])
         
         try:
