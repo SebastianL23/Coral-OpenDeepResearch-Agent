@@ -475,6 +475,11 @@ Return ONLY the JSON array."""),
             
             if isinstance(rules, list) and len(rules) > 0:
                 logger.info(f"Successfully generated {len(rules)} AI-driven rules")
+                
+                # Log the exact JSON structure being returned
+                for i, rule in enumerate(rules):
+                    logger.info(f"Rule {i+1} JSON structure: {json.dumps(rule, indent=2)}")
+                
                 return rules
             else:
                 logger.warning("AI returned empty or invalid rules, using data-driven fallback")
@@ -616,6 +621,7 @@ Return ONLY the JSON array."""),
                 "cart_value_operator": "greater_than",
                 "cart_value": cart_threshold
             }
+            logger.info(f"Cart Completion trigger_conditions: {conditions}")
             rules.append({
                 "name": rule_name,
                 "description": f"Target customers with high-value carts to promote premium ${analysis['price_range']['max']} products",
@@ -640,6 +646,7 @@ Return ONLY the JSON array."""),
                 "cart_value_operator": "greater_than",
                 "cart_value": cart_threshold
             }
+            logger.info(f"Cart Completion trigger_conditions: {conditions}")
             rules.append({
                 "name": rule_name,
                 "description": f"Encourage customers to add one more item when cart reaches ${analysis['price_range']['average']:.0f}",
@@ -665,6 +672,7 @@ Return ONLY the JSON array."""),
                 "cart_value_operator": "between",
                 "cart_value": [min_threshold, max_threshold]
             }
+            logger.info(f"Entry-Level Upgrade trigger_conditions: {conditions}")
             rules.append({
                 "name": rule_name,
                 "description": f"Upgrade customers from ${analysis['price_range']['min']} items to ${analysis['price_range']['average']:.0f} average products",
@@ -689,6 +697,7 @@ Return ONLY the JSON array."""),
                 "cart_value_operator": "greater_than",
                 "cart_value": cart_threshold
             }
+            logger.info(f"High-Value Customer trigger_conditions: {conditions}")
             rules.append({
                 "name": rule_name,
                 "description": f"Target customers with above-average order values of ${analysis['order_patterns']['avg_order_value']:.0f}",
@@ -712,6 +721,7 @@ Return ONLY the JSON array."""),
                 "time_on_site_operator": "greater_than",
                 "time_on_site_min": 300  # 5 minutes
             }
+            logger.info(f"Cart Abandonment Recovery trigger_conditions: {conditions}")
             rules.append({
                 "name": rule_name,
                 "description": f"Recover abandoned carts with {analysis['cart_patterns']['abandonment_rate']:.1%} abandonment rate",
@@ -739,6 +749,7 @@ Return ONLY the JSON array."""),
                         "cart_value_operator": "greater_than",
                         "cart_value": cart_threshold
                     }
+                    logger.info(f"Category Cross-Sell trigger_conditions: {conditions}")
                     rules.append({
                         "name": rule_name,
                         "description": f"Cross-sell from {categories[0]} to {categories[1]} products",
@@ -763,6 +774,7 @@ Return ONLY the JSON array."""),
                     "time_on_site_operator": "greater_than",
                     "time_on_site_min": 180  # 3 minutes
                 }
+                logger.info(f"Time-Based Engagement trigger_conditions: {conditions}")
                 rules.append({
                     "name": rule_name,
                     "description": "Engage customers who spend significant time browsing",
@@ -779,6 +791,11 @@ Return ONLY the JSON array."""),
                 })
         
         logger.info(f"Generated {len(rules)} data-driven rules with target products based on actual business data")
+        
+        # Log the exact JSON structure being returned
+        for i, rule in enumerate(rules):
+            logger.info(f"Rule {i+1} JSON structure: {json.dumps(rule, indent=2)}")
+        
         return rules
     
     def _calculate_abandonment_rate(self, cart_events: List[Dict], orders: List[Dict]) -> float:
