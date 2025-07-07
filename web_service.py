@@ -469,7 +469,7 @@ class CoralResearchAgent:
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an expert e-commerce analyst. Create specific, data-driven upsell rules based on the provided business data.
 
-IMPORTANT: Return ONLY valid JSON array. No explanations, no markdown, just pure JSON.
+CRITICAL: You must return ONLY a valid JSON array. No explanations, no markdown, no extra text. Just pure JSON.
 
 UpsellEngine Rule Schema (EXACT format required):
 {
@@ -509,7 +509,9 @@ Example format:
     "priority": 4,
     "status": "draft"
   }
-]"""),
+]
+
+IMPORTANT: Return ONLY the JSON array. No explanations."""),
             ("user", f"""Based on this business data, create 5-7 diverse upsell rules:
 
 BUSINESS DATA:
@@ -531,7 +533,7 @@ Create a MIX of rule types:
 7. Set appropriate display_type (popup/cart/checkout)
 8. Vary priority levels (3-9)
 
-Return ONLY the JSON array."""),
+Return ONLY the JSON array. No explanations."""),
         ])
         
         try:
@@ -539,6 +541,7 @@ Return ONLY the JSON array."""),
             
             # Clean and parse the response
             content = response.content.strip()
+            logger.info(f"AI response content: {content[:200]}...")  # Log first 200 chars
             
             # Remove any markdown formatting
             if content.startswith('```json'):
@@ -548,7 +551,24 @@ Return ONLY the JSON array."""),
             content = content.strip()
             
             # Try to parse the JSON
-            rules = json.loads(content)
+            try:
+                rules = json.loads(content)
+            except json.JSONDecodeError as json_error:
+                logger.error(f"JSON parsing error: {json_error}")
+                logger.error(f"Content that failed to parse: {content}")
+                # Try to extract JSON from the response
+                import re
+                json_match = re.search(r'\[.*\]', content, re.DOTALL)
+                if json_match:
+                    try:
+                        rules = json.loads(json_match.group())
+                        logger.info("Successfully extracted JSON from response")
+                    except:
+                        logger.warning("Failed to extract JSON, using data-driven fallback")
+                        return self._generate_data_driven_rules(data)
+                else:
+                    logger.warning("No JSON array found in response, using data-driven fallback")
+                    return self._generate_data_driven_rules(data)
             
             if isinstance(rules, list) and len(rules) > 0:
                 logger.info(f"Successfully generated {len(rules)} AI-driven rules")
@@ -1107,7 +1127,24 @@ Return ONLY the JSON array."""),
             content = content.strip()
             
             # Try to parse the JSON
-            campaigns = json.loads(content)
+            try:
+                campaigns = json.loads(content)
+            except json.JSONDecodeError as json_error:
+                logger.error(f"JSON parsing error: {json_error}")
+                logger.error(f"Content that failed to parse: {content}")
+                # Try to extract JSON from the response
+                import re
+                json_match = re.search(r'\[.*\]', content, re.DOTALL)
+                if json_match:
+                    try:
+                        campaigns = json.loads(json_match.group())
+                        logger.info("Successfully extracted JSON from response")
+                    except:
+                        logger.warning("Failed to extract JSON, using data-driven fallback")
+                        return self._generate_data_driven_campaigns(data)
+                else:
+                    logger.warning("No JSON array found in response, using data-driven fallback")
+                    return self._generate_data_driven_campaigns(data)
             
             if isinstance(campaigns, list) and len(campaigns) > 0:
                 logger.info(f"Successfully generated {len(campaigns)} AI-driven campaigns")
@@ -1508,7 +1545,7 @@ async def health_check():
 async def analyze_user_data(request: AnalysisRequest):
     try:
         logger.info(f"Starting analysis for user {request.user_id}")
-        logger.info(f"Request data: {request.dict()}")
+        logger.info(f"Request data: {request.model_dump()}")
         
         # Determine time range (handle both field names)
         time_range = request.time_range_days or request.analysis_days or 30
@@ -1536,9 +1573,8 @@ async def debug_request(request: AnalysisRequest):
         logger.info(f"Analysis Type: {request.analysis_type}")
         logger.info(f"Time Range Days: {request.time_range_days}")
         logger.info(f"Analysis Days: {request.analysis_days}")
-        logger.info(f"Has sent data: {request.data is not None}")
+        logger.info(f"Data is None: {request.data is None}")
         
-        # Test data processing
         if request.data:
             logger.info("Processing sent data from UpsellEngine...")
             transformed_data = agent._transform_upsell_engine_data(request.data)
@@ -1549,16 +1585,16 @@ async def debug_request(request: AnalysisRequest):
                 "data_source": "upsell_engine",
                 "user_id": request.user_id,
                 "data_summary": {
-                    "products": len(transformed_data.get('shopify_products', [])),
-                    "orders": len(transformed_data.get('shopify_orders', [])),
-                    "cart_events": len(transformed_data.get('cart_events', [])),
-                    "campaigns": len(transformed_data.get('campaigns', [])),
-                    "rules": len(transformed_data.get('upsell_rules', []))
+                    "products": len(request.data.get('products', [])),
+                    "orders": len(request.data.get('orders', [])),
+                    "cart_events": len(request.data.get('cart_events', [])),
+                    "campaigns": len(request.data.get('campaigns', [])),
+                    "rules": len(request.data.get('existing_rules', []))
                 },
                 "sample_data": {
-                    "sample_product": transformed_data.get('shopify_products', [{}])[0] if transformed_data.get('shopify_products') else None,
-                    "sample_order": transformed_data.get('shopify_orders', [{}])[0] if transformed_data.get('shopify_orders') else None,
-                    "sample_cart_event": transformed_data.get('cart_events', [{}])[0] if transformed_data.get('cart_events') else None
+                    "sample_product": request.data.get('products', [{}])[0] if request.data.get('products') else None,
+                    "sample_order": request.data.get('orders', [{}])[0] if request.data.get('orders') else None,
+                    "sample_cart_event": request.data.get('cart_events', [{}])[0] if request.data.get('cart_events') else None
                 }
             }
         elif agent.supabase:
@@ -1591,6 +1627,52 @@ async def debug_request(request: AnalysisRequest):
             
     except Exception as e:
         logger.error(f"Debug request failed: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.post("/test")
+async def test_endpoint(request: AnalysisRequest):
+    """Test endpoint to debug data issues"""
+    try:
+        logger.info(f"=== TEST ENDPOINT ===")
+        logger.info(f"User ID: {request.user_id}")
+        logger.info(f"Analysis Type: {request.analysis_type}")
+        logger.info(f"Time Range Days: {request.time_range_days}")
+        logger.info(f"Analysis Days: {request.analysis_days}")
+        logger.info(f"Data is None: {request.data is None}")
+        
+        if request.data:
+            logger.info(f"Data keys: {list(request.data.keys())}")
+            logger.info(f"Products count: {len(request.data.get('products', []))}")
+            logger.info(f"Orders count: {len(request.data.get('orders', []))}")
+            
+            # Test transformation
+            transformed = agent._transform_upsell_engine_data(request.data)
+            logger.info(f"Transformed successfully: {len(transformed.get('shopify_products', []))} products")
+            
+            return {
+                "status": "success",
+                "message": "Data received and transformed successfully",
+                "data_summary": {
+                    "products": len(request.data.get('products', [])),
+                    "orders": len(request.data.get('orders', [])),
+                    "cart_events": len(request.data.get('cart_events', [])),
+                    "campaigns": len(request.data.get('campaigns', [])),
+                    "rules": len(request.data.get('existing_rules', []))
+                }
+            }
+        else:
+            logger.warning("No data received from UpsellEngine")
+            return {
+                "status": "warning",
+                "message": "No data received from UpsellEngine - using Supabase fallback",
+                "data_source": "supabase"
+            }
+            
+    except Exception as e:
+        logger.error(f"Test endpoint failed: {str(e)}")
         return {
             "status": "error",
             "message": str(e)
