@@ -74,6 +74,8 @@ class AnalysisRequest(BaseModel):
     user_id: str
     analysis_type: str = "comprehensive"  # comprehensive, rules_only, campaigns_only
     time_range_days: int = 30
+    analysis_days: int = 30  # Alternative field name
+    data: Optional[Dict[str, Any]] = None  # Data sent from UpsellEngine
 
 class AnalysisResponse(BaseModel):
     user_id: str
@@ -89,22 +91,25 @@ class CoralResearchAgent:
         self.model = model
         self.supabase = supabase
         
-    async def analyze_user_data(self, user_id: str, time_range_days: int = 30) -> Dict[str, Any]:
+    async def analyze_user_data(self, user_id: str, time_range_days: int = 30, sent_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Analyze user's data and generate insights"""
         logger.info(f"Starting analysis for user {user_id}")
         
         # Check if we have required services
-        if not self.supabase:
-            logger.warning("No Supabase connection - using demo mode")
-            return await self._generate_demo_analysis(user_id, time_range_days)
-        
         if not self.model:
             logger.warning("No Groq model connection - using fallback mode")
             return await self._generate_fallback_analysis(user_id, time_range_days)
         
-        # Get data from all relevant tables
-        logger.info(f"Fetching data for user {user_id} (last {time_range_days} days)")
-        data = await self._fetch_user_data(user_id, time_range_days)
+        # Use sent data if available, otherwise fetch from Supabase
+        if sent_data:
+            logger.info("Using data sent from UpsellEngine")
+            data = self._transform_upsell_engine_data(sent_data)
+        elif self.supabase:
+            logger.info("Fetching data from Supabase")
+            data = await self._fetch_user_data(user_id, time_range_days)
+        else:
+            logger.warning("No data source available - using demo mode")
+            return await self._generate_demo_analysis(user_id, time_range_days)
         
         # DEBUG: Log what data we received
         logger.info(f"=== DATA RECEIVED DEBUG ===")
@@ -147,6 +152,26 @@ class CoralResearchAgent:
         logger.info(f"Generated {len(rule_suggestions)} rules, {len(campaign_suggestions)} campaigns")
         
         return result
+    
+    def _transform_upsell_engine_data(self, sent_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Transform UpsellEngine data format to Coral agent format"""
+        logger.info("Transforming UpsellEngine data format...")
+        
+        # Map the UpsellEngine data structure to Coral agent format
+        transformed_data = {
+            "shopify_products": sent_data.get("products", []),
+            "shopify_orders": sent_data.get("orders", []),
+            "cart_events": sent_data.get("cart_events", []),
+            "upsell_events": sent_data.get("upsell_events", []),
+            "campaigns": sent_data.get("campaigns", []),
+            "upsell_rules": sent_data.get("existing_rules", []),
+            "profiles": sent_data.get("profile", {}),
+            "analysis_period_days": sent_data.get("analysis_period", "30_days")
+        }
+        
+        logger.info(f"Transformed data: {len(transformed_data['shopify_products'])} products, {len(transformed_data['shopify_orders'])} orders")
+        
+        return transformed_data
     
     async def _generate_demo_analysis(self, user_id: str, time_range_days: int) -> Dict[str, Any]:
         """Generate demo analysis when Supabase is not available"""
@@ -1485,10 +1510,14 @@ async def analyze_user_data(request: AnalysisRequest):
         logger.info(f"Starting analysis for user {request.user_id}")
         logger.info(f"Request data: {request.dict()}")
         
-        # Perform the analysis
+        # Determine time range (handle both field names)
+        time_range = request.time_range_days or request.analysis_days or 30
+        
+        # Perform the analysis with sent data if available
         result = await agent.analyze_user_data(
             user_id=request.user_id,
-            time_range_days=request.time_range_days
+            time_range_days=time_range,
+            sent_data=request.data
         )
         
         logger.info(f"Analysis completed for user {request.user_id}")
@@ -1506,15 +1535,40 @@ async def debug_request(request: AnalysisRequest):
         logger.info(f"User ID: {request.user_id}")
         logger.info(f"Analysis Type: {request.analysis_type}")
         logger.info(f"Time Range Days: {request.time_range_days}")
+        logger.info(f"Analysis Days: {request.analysis_days}")
+        logger.info(f"Has sent data: {request.data is not None}")
         
-        # Test data fetch
-        if agent.supabase:
+        # Test data processing
+        if request.data:
+            logger.info("Processing sent data from UpsellEngine...")
+            transformed_data = agent._transform_upsell_engine_data(request.data)
+            logger.info(f"Transformed data result: {json.dumps(transformed_data, indent=2, default=str)}")
+            
+            return {
+                "status": "success",
+                "data_source": "upsell_engine",
+                "user_id": request.user_id,
+                "data_summary": {
+                    "products": len(transformed_data.get('shopify_products', [])),
+                    "orders": len(transformed_data.get('shopify_orders', [])),
+                    "cart_events": len(transformed_data.get('cart_events', [])),
+                    "campaigns": len(transformed_data.get('campaigns', [])),
+                    "rules": len(transformed_data.get('upsell_rules', []))
+                },
+                "sample_data": {
+                    "sample_product": transformed_data.get('shopify_products', [{}])[0] if transformed_data.get('shopify_products') else None,
+                    "sample_order": transformed_data.get('shopify_orders', [{}])[0] if transformed_data.get('shopify_orders') else None,
+                    "sample_cart_event": transformed_data.get('cart_events', [{}])[0] if transformed_data.get('cart_events') else None
+                }
+            }
+        elif agent.supabase:
             logger.info("Testing Supabase connection...")
-            data = await agent._fetch_user_data(request.user_id, request.time_range_days)
+            data = await agent._fetch_user_data(request.user_id, request.time_range_days or 30)
             logger.info(f"Data fetch result: {json.dumps(data, indent=2, default=str)}")
             
             return {
                 "status": "success",
+                "data_source": "supabase",
                 "user_id": request.user_id,
                 "data_summary": {
                     "products": len(data.get('shopify_products', [])),
@@ -1532,7 +1586,7 @@ async def debug_request(request: AnalysisRequest):
         else:
             return {
                 "status": "error",
-                "message": "No Supabase connection available"
+                "message": "No data source available"
             }
             
     except Exception as e:
