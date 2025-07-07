@@ -479,6 +479,9 @@ Return ONLY the JSON array."""),
                 # Log the exact JSON structure being returned
                 for i, rule in enumerate(rules):
                     logger.info(f"Rule {i+1} JSON structure: {json.dumps(rule, indent=2)}")
+                    console.log('🎯 Using Coral agent rule:', rule)
+                    console.log('🎯 Full trigger_conditions:', JSON.stringify(rule.trigger_conditions, null, 2))
+                    console.log('🎯 Full rule JSON:', JSON.stringify(rule, null, 2))
                 
                 return rules
             else:
