@@ -425,26 +425,28 @@ class CoralResearchAgent:
             
             {json.dumps(data_summary, indent=2)}
             
-            Generate insights in this EXACT JSON format (no extra text):
+            CRITICAL: Return ONLY valid JSON. No explanations, no markdown, no extra text.
+            
+            Generate insights in this EXACT JSON format:
             {{
                 "customer_behavior_insights": [
                     {{
                         "insight": "description",
-                        "impact": "high/medium/low",
+                        "impact": "high|medium|low",
                         "action": "specific action to take"
                     }}
                 ],
                 "performance_insights": [
                     {{
                         "insight": "description", 
-                        "impact": "high/medium/low",
+                        "impact": "high|medium|low",
                         "action": "specific action to take"
                     }}
                 ],
                 "product_insights": [
                     {{
                         "insight": "description",
-                        "impact": "high/medium/low", 
+                        "impact": "high|medium|low", 
                         "action": "specific action to take"
                     }}
                 ],
@@ -455,7 +457,15 @@ class CoralResearchAgent:
                         "implementation": "how to implement"
                     }}
                 ]
-            }}""")
+            }}
+            
+            CRITICAL RULES:
+            1. Return ONLY the JSON object - no markdown, no explanations
+            2. Use double quotes for all strings
+            3. No trailing commas
+            4. No extra whitespace or newlines before the opening brace
+            5. Ensure all required keys are present
+            6. Each insight should be specific and actionable based on the data""")
         ])
         
         # Retry logic for AI insights
@@ -476,38 +486,85 @@ class CoralResearchAgent:
                     content = content[:-3]
                 content = content.strip()
                 
-                # Try to parse JSON
+                # Try to parse JSON with multiple fallback strategies
+                insights = None
+                json_error = None
+                
+                # Strategy 1: Direct JSON parsing
                 try:
                     insights = json.loads(content)
-                    logger.info("Successfully parsed AI insights JSON")
-                    
-                    # Validate the insights structure
-                    required_keys = ["customer_behavior_insights", "performance_insights", "product_insights", "revenue_opportunities"]
-                    if all(key in insights for key in required_keys):
-                        logger.info("AI insights validation successful")
-                        return insights
-                    else:
-                        logger.warning(f"AI insights missing required keys. Found: {list(insights.keys())}")
-                        raise Exception("Invalid insights structure")
+                    logger.info("Strategy 1: Direct JSON parsing successful")
+                except json.JSONDecodeError as e:
+                    json_error = e
+                    logger.warning(f"Strategy 1 failed: {e}")
+                
+                # Strategy 2: Clean and try again
+                if insights is None:
+                    try:
+                        # Remove any leading/trailing whitespace and newlines
+                        cleaned_content = content.strip()
+                        # Remove any leading/trailing quotes
+                        if cleaned_content.startswith('"') and cleaned_content.endswith('"'):
+                            cleaned_content = cleaned_content[1:-1]
+                        # Remove any leading/trailing backticks
+                        if cleaned_content.startswith('`') and cleaned_content.endswith('`'):
+                            cleaned_content = cleaned_content[1:-1]
                         
-                except json.JSONDecodeError as json_error:
-                    logger.error(f"JSON parsing error on attempt {attempt + 1}: {json_error}")
-                    logger.error(f"Content that failed to parse: {content}")
-                    
-                    # Try to extract JSON from the response
-                    import re
-                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                    if json_match:
-                        try:
-                            insights = json.loads(json_match.group())
-                            logger.info("Successfully extracted JSON from response")
-                            return insights
-                        except:
-                            logger.warning("Failed to extract JSON from response")
+                        insights = json.loads(cleaned_content)
+                        logger.info("Strategy 2: Cleaned JSON parsing successful")
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Strategy 2 failed: {e}")
+                
+                # Strategy 3: Extract JSON object with regex
+                if insights is None:
+                    try:
+                        import re
+                        # Look for JSON object pattern
+                        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content, re.DOTALL)
+                        if json_match:
+                            extracted_json = json_match.group()
+                            insights = json.loads(extracted_json)
+                            logger.info("Strategy 3: Regex extraction successful")
+                    except (json.JSONDecodeError, AttributeError) as e:
+                        logger.warning(f"Strategy 3 failed: {e}")
+                
+                # Strategy 4: Try to fix common JSON issues
+                if insights is None:
+                    try:
+                        # Fix common issues like missing quotes, trailing commas
+                        fixed_content = content
+                        # Remove trailing commas before closing braces/brackets
+                        fixed_content = re.sub(r',(\s*[}\]])', r'\1', fixed_content)
+                        # Ensure proper quote formatting
+                        fixed_content = re.sub(r'([{,])\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1 "\2":', fixed_content)
+                        
+                        insights = json.loads(fixed_content)
+                        logger.info("Strategy 4: Fixed JSON parsing successful")
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Strategy 4 failed: {e}")
+                
+                # If all strategies failed, log the content and raise error
+                if insights is None:
+                    logger.error(f"All JSON parsing strategies failed. Content: {content}")
+                    logger.error(f"Original JSON error: {json_error}")
                     
                     if attempt == max_retries - 1:
-                        raise Exception(f"Failed to parse AI response after {max_retries} attempts")
+                        raise Exception(f"Failed to parse AI response after {max_retries} attempts. Content: {content[:200]}...")
                     continue
+                
+                # Validate the insights structure
+                required_keys = ["customer_behavior_insights", "performance_insights", "product_insights", "revenue_opportunities"]
+                if all(key in insights for key in required_keys):
+                    logger.info("AI insights validation successful")
+                    return insights
+                else:
+                    logger.warning(f"AI insights missing required keys. Found: {list(insights.keys())}")
+                    # Try to fix missing keys with default values
+                    for key in required_keys:
+                        if key not in insights:
+                            insights[key] = []
+                    logger.info("Added missing keys with default values")
+                    return insights
                     
             except Exception as e:
                 logger.error(f"AI insight generation failed on attempt {attempt + 1}: {str(e)}")
