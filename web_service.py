@@ -351,20 +351,20 @@ class CoralResearchAgent:
             # 3. PRODUCT DATA (Priority 3)
             logger.info("3. Fetching product data...")
             
-            # Shopify Products
+            # Try products table first (your primary table)
             try:
-                products_response = self.supabase.table('shopify_products').select('*').eq('user_id', user_id).execute()
+                products_response = self.supabase.table('products').select('*').eq('user_id', user_id).execute()
                 data["shopify_products"] = products_response.data if products_response.data else []
-                logger.info(f"Found {len(data['shopify_products'])} shopify_products")
+                logger.info(f"Found {len(data['shopify_products'])} products")
             except Exception as e:
-                logger.warning(f"Could not fetch shopify_products: {str(e)}")
-                # Try alternative table name
+                logger.warning(f"Could not fetch products: {str(e)}")
+                # Try Shopify table as fallback
                 try:
-                    products_response = self.supabase.table('products').select('*').eq('user_id', user_id).execute()
+                    products_response = self.supabase.table('shopify_products').select('*').eq('user_id', user_id).execute()
                     data["shopify_products"] = products_response.data if products_response.data else []
-                    logger.info(f"Found {len(data['shopify_products'])} products (alternative table)")
+                    logger.info(f"Found {len(data['shopify_products'])} shopify_products (fallback)")
                 except Exception as e2:
-                    logger.warning(f"Could not fetch products either: {str(e2)}")
+                    logger.warning(f"Could not fetch shopify_products either: {str(e2)}")
             
             # Additional data for context
             logger.info("4. Fetching additional context data...")
@@ -1315,6 +1315,10 @@ Return ONLY the JSON array."""),
     
     def _create_data_summary(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a summary of the data for analysis"""
+        # Filter for active rules and campaigns
+        active_campaigns = [c for c in data.get('campaigns', []) if c.get('status') == 'active']
+        active_rules = [r for r in data.get('upsell_rules', []) if r.get('status') == 'active']
+        
         return {
             "customer_behavior": {
                 "total_orders": len(data.get('shopify_orders', [])),
@@ -1323,8 +1327,8 @@ Return ONLY the JSON array."""),
             },
             "performance": {
                 "total_upsell_events": len(data.get('upsell_events', [])),
-                "total_campaigns": len(data.get('campaigns', [])),
-                "total_rules": len(data.get('upsell_rules', []))
+                "total_campaigns": len(active_campaigns),  # Only active campaigns
+                "total_rules": len(active_rules)           # Only active rules
             },
             "products": {
                 "total_products": len(data.get('shopify_products', [])),
