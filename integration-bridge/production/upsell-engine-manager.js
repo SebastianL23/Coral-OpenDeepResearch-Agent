@@ -165,15 +165,29 @@ class UpsellEngineManager {
       // Normalize rule data from Coral agent format to UpsellEngine format
       const normalizedRuleData = this.normalizeRuleData(ruleData);
       
+      // Extract target products before creating the rule
+      const targetProducts = normalizedRuleData.target_products || [];
+      delete normalizedRuleData.target_products; // Remove from rule data since we'll use junction table
+      
+      // Validate product IDs if present
+      let validatedProducts = [];
+      if (targetProducts.length > 0) {
+        validatedProducts = await this.validateProductIds(targetProducts, user_id);
+        if (validatedProducts.length !== targetProducts.length) {
+          this.logger.warn('Some product IDs could not be validated', {
+            provided: targetProducts.length,
+            validated: validatedProducts.length
+          });
+        }
+      }
+      
       // Check if this is a product-specific rule and we have target products
       let ruleId = uuidv4(); // Default to generated UUID
       
       // If this rule has target products and they're existing product IDs, use the first one as the rule ID
-      if (normalizedRuleData.target_products && normalizedRuleData.target_products.length > 0) {
-        const firstTargetProduct = normalizedRuleData.target_products[0];
-        // Check if this looks like an existing product ID (not a generated UUID)
-        if (firstTargetProduct && (firstTargetProduct.length !== 36 || !firstTargetProduct.includes('-'))) {
-          // This might be an existing product ID, use it as the rule ID
+      if (validatedProducts.length > 0) {
+        const firstTargetProduct = validatedProducts[0];
+        if (firstTargetProduct && this.isValidProductId(firstTargetProduct)) {
           ruleId = `rule_${firstTargetProduct}`;
         }
       }
@@ -191,7 +205,8 @@ class UpsellEngineManager {
         rule_name: rule.name,
         trigger_type: rule.trigger_type,
         rule_type: rule.rule_type,
-        conditions: rule.conditions
+        conditions: rule.conditions,
+        target_products_count: validatedProducts.length
       });
 
       // Validate rule data
@@ -220,17 +235,91 @@ class UpsellEngineManager {
 
       if (error) throw error;
 
+      // Insert target products into junction table
+      if (validatedProducts.length > 0) {
+        const junctionData = validatedProducts.map(productId => ({
+          rule_id: data.id,
+          product_id: productId
+        }));
+
+        const { error: junctionError } = await this.supabase
+          .from('upsell_rule_products')
+          .insert(junctionData);
+
+        if (junctionError) {
+          this.logger.error('Failed to insert rule products', { error: junctionError.message });
+          // Don't throw here, the rule was created successfully
+        }
+      }
+
       this.logger.info('Created upsell rule', { 
         rule_id: data.id, 
         rule_name: data.name, 
         trigger_type: data.trigger_type,
-        rule_type: data.rule_type 
+        rule_type: data.rule_type,
+        target_products_count: validatedProducts.length
       });
       return { created: true, updated: false, rule_id: data.id };
     } catch (error) {
       this.logger.error('Failed to create rule', { error: error.message, rule_data: ruleData });
       throw error;
     }
+  }
+
+  /**
+   * Validate product IDs against the database
+   * @param {string[]} productIds - Array of product IDs to validate
+   * @param {string} user_id - User ID for validation
+   * @returns {Promise<string[]>} Array of validated product IDs
+   */
+  async validateProductIds(productIds, user_id) {
+    if (!productIds || productIds.length === 0) return [];
+    
+    const validIds = [];
+    
+    for (const productId of productIds) {
+      if (!productId) continue;
+      
+      try {
+        // Check if product exists in the database
+        const { data: product, error } = await this.supabase
+          .from('products')
+          .select('id')
+          .eq('id', productId)
+          .eq('user_id', user_id)
+          .single();
+        
+        if (!error && product) {
+          validIds.push(productId);
+          this.logger.debug('Validated product ID', { product_id: productId });
+        } else {
+          this.logger.warn('Product ID not found in database', { product_id: productId, user_id });
+        }
+      } catch (error) {
+        this.logger.warn('Error validating product ID', { product_id: productId, error: error.message });
+      }
+    }
+    
+    return validIds;
+  }
+
+  /**
+   * Check if a product ID is valid (not a generated UUID)
+   * @param {string} productId - Product ID to validate
+   * @returns {boolean} True if valid product ID
+   */
+  isValidProductId(productId) {
+    if (!productId) return false;
+    
+    // If it's a UUID format, it might be a generated one
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
+    
+    // If it's not a UUID, it's likely a real product ID (e.g., Shopify ID)
+    if (!isUuid) return true;
+    
+    // If it is a UUID, check if it looks like a generated one vs a real product UUID
+    // This is a heuristic - you might want to adjust based on your UUID generation pattern
+    return false; // For now, assume UUIDs are generated
   }
 
   /**
@@ -376,15 +465,45 @@ class UpsellEngineManager {
    */
   async createCampaign(campaignData, user_id, insight) {
     try {
+      // Extract product arrays before creating the campaign
+      const triggerProducts = campaignData.trigger_products || [];
+      const upsellProducts = campaignData.upsell_products || [];
+      
+      // Remove from campaign data since we'll use junction tables
+      delete campaignData.trigger_products;
+      delete campaignData.upsell_products;
+      
+      // Validate trigger product IDs if present
+      let validatedTriggerProducts = [];
+      if (triggerProducts.length > 0) {
+        validatedTriggerProducts = await this.validateProductIds(triggerProducts, user_id);
+        if (validatedTriggerProducts.length !== triggerProducts.length) {
+          this.logger.warn('Some trigger product IDs could not be validated', {
+            provided: triggerProducts.length,
+            validated: validatedTriggerProducts.length
+          });
+        }
+      }
+      
+      // Validate upsell product IDs if present
+      let validatedUpsellProducts = [];
+      if (upsellProducts.length > 0) {
+        validatedUpsellProducts = await this.validateProductIds(upsellProducts, user_id);
+        if (validatedUpsellProducts.length !== upsellProducts.length) {
+          this.logger.warn('Some upsell product IDs could not be validated', {
+            provided: upsellProducts.length,
+            validated: validatedUpsellProducts.length
+          });
+        }
+      }
+      
       // Check if this is a product-specific campaign and we have trigger products
       let campaignId = uuidv4(); // Default to generated UUID
       
       // If this campaign has trigger products and they're existing product IDs, use the first one as the campaign ID
-      if (campaignData.trigger_products && campaignData.trigger_products.length > 0) {
-        const firstTriggerProduct = campaignData.trigger_products[0];
-        // Check if this looks like an existing product ID (not a generated UUID)
-        if (firstTriggerProduct && (firstTriggerProduct.length !== 36 || !firstTriggerProduct.includes('-'))) {
-          // This might be an existing product ID, use it as the campaign ID
+      if (validatedTriggerProducts.length > 0) {
+        const firstTriggerProduct = validatedTriggerProducts[0];
+        if (firstTriggerProduct && this.isValidProductId(firstTriggerProduct)) {
           campaignId = `campaign_${firstTriggerProduct}`;
         }
       }
@@ -419,7 +538,44 @@ class UpsellEngineManager {
 
       if (error) throw error;
 
-      this.logger.info('Created campaign', { campaign_id: data.id, campaign_name: data.name });
+      // Insert trigger products into junction table
+      if (validatedTriggerProducts.length > 0) {
+        const triggerJunctionData = validatedTriggerProducts.map(productId => ({
+          campaign_id: data.id,
+          product_id: productId
+        }));
+
+        const { error: triggerError } = await this.supabase
+          .from('campaign_trigger_products')
+          .insert(triggerJunctionData);
+
+        if (triggerError) {
+          this.logger.error('Failed to insert campaign trigger products', { error: triggerError.message });
+        }
+      }
+
+      // Insert upsell products into junction table
+      if (validatedUpsellProducts.length > 0) {
+        const upsellJunctionData = validatedUpsellProducts.map(productId => ({
+          campaign_id: data.id,
+          product_id: productId
+        }));
+
+        const { error: upsellError } = await this.supabase
+          .from('campaign_upsell_products')
+          .insert(upsellJunctionData);
+
+        if (upsellError) {
+          this.logger.error('Failed to insert campaign upsell products', { error: upsellError.message });
+        }
+      }
+
+      this.logger.info('Created campaign', { 
+        campaign_id: data.id, 
+        campaign_name: data.name,
+        trigger_products_count: validatedTriggerProducts.length,
+        upsell_products_count: validatedUpsellProducts.length
+      });
       return { created: true, updated: false, campaign_id: data.id };
     } catch (error) {
       this.logger.error('Failed to create campaign', { error: error.message, campaign_data: campaignData });
@@ -464,7 +620,7 @@ class UpsellEngineManager {
     try {
       const { data, error } = await this.supabase
         .from('upsell_rules')
-        .select('id, name, trigger_type, target_products')
+        .select('id, name, trigger_type')
         .eq('user_id', user_id)
         .eq('trigger_type', rule.trigger_type)
         .eq('status', 'active');
@@ -472,11 +628,28 @@ class UpsellEngineManager {
       if (error) throw error;
 
       // Check for similar rules based on trigger conditions and target products
-      return data.find(existingRule => {
-        const sameTrigger = JSON.stringify(existingRule.trigger_conditions) === JSON.stringify(rule.trigger_conditions);
-        const sameTargets = JSON.stringify(existingRule.target_products) === JSON.stringify(rule.target_products);
-        return sameTrigger && sameTargets;
-      });
+      for (const existingRule of data) {
+        try {
+          // Get target products for existing rule
+          const { data: existingProducts } = await this.supabase
+            .rpc('get_rule_target_products', { rule_uuid: existingRule.id });
+          
+          // Compare trigger conditions and target products
+          const sameTrigger = JSON.stringify(rule.trigger_conditions) === JSON.stringify(rule.trigger_conditions);
+          const sameTargets = JSON.stringify(rule.target_products) === JSON.stringify(existingProducts);
+          
+          if (sameTrigger && sameTargets) {
+            return existingRule;
+          }
+        } catch (error) {
+          this.logger.warn('Failed to get products for existing rule', { 
+            rule_id: existingRule.id, 
+            error: error.message 
+          });
+        }
+      }
+      
+      return null;
     } catch (error) {
       this.logger.error('Failed to find similar rule', { error: error.message });
       return null;
@@ -490,7 +663,7 @@ class UpsellEngineManager {
     try {
       const { data, error } = await this.supabase
         .from('campaigns')
-        .select('id, name, campaign_type, trigger_products, upsell_products')
+        .select('id, name, campaign_type')
         .eq('user_id', user_id)
         .eq('campaign_type', campaign.campaign_type)
         .eq('status', 'active');
@@ -498,11 +671,30 @@ class UpsellEngineManager {
       if (error) throw error;
 
       // Check for similar campaigns based on type, trigger products, and upsell products
-      return data.find(existingCampaign => {
-        const sameTriggers = JSON.stringify(existingCampaign.trigger_products) === JSON.stringify(campaign.trigger_products);
-        const sameUpsells = JSON.stringify(existingCampaign.upsell_products) === JSON.stringify(campaign.upsell_products);
-        return sameTriggers && sameUpsells;
-      });
+      for (const existingCampaign of data) {
+        try {
+          // Get trigger and upsell products for existing campaign
+          const [triggerProducts, upsellProducts] = await Promise.all([
+            this.supabase.rpc('get_campaign_trigger_products', { campaign_uuid: existingCampaign.id }),
+            this.supabase.rpc('get_campaign_upsell_products', { campaign_uuid: existingCampaign.id })
+          ]);
+          
+          // Compare trigger products and upsell products
+          const sameTriggerProducts = JSON.stringify(campaign.trigger_products) === JSON.stringify(triggerProducts.data);
+          const sameUpsellProducts = JSON.stringify(campaign.upsell_products) === JSON.stringify(upsellProducts.data);
+          
+          if (sameTriggerProducts && sameUpsellProducts) {
+            return existingCampaign;
+          }
+        } catch (error) {
+          this.logger.warn('Failed to get products for existing campaign', { 
+            campaign_id: existingCampaign.id, 
+            error: error.message 
+          });
+        }
+      }
+      
+      return null;
     } catch (error) {
       this.logger.error('Failed to find similar campaign', { error: error.message });
       return null;
@@ -510,7 +702,7 @@ class UpsellEngineManager {
   }
 
   /**
-   * Get active rules for evaluation
+   * Get active rules for user
    */
   async getActiveRules(user_id) {
     try {
@@ -518,38 +710,87 @@ class UpsellEngineManager {
         .from('upsell_rules')
         .select('*')
         .eq('user_id', user_id)
-        .eq('status', 'active')
-        .order('priority', { ascending: false });
+        .eq('is_active', true)
+        .eq('status', 'active');
 
       if (error) throw error;
-      return data;
+
+      // Get target products for each rule using the helper function
+      const rulesWithProducts = await Promise.all(
+        data.map(async (rule) => {
+          try {
+            const { data: products } = await this.supabase
+              .rpc('get_rule_target_products', { rule_uuid: rule.id });
+            
+            return {
+              ...rule,
+              target_products: products || []
+            };
+          } catch (error) {
+            this.logger.warn('Failed to get target products for rule', { 
+              rule_id: rule.id, 
+              error: error.message 
+            });
+            return {
+              ...rule,
+              target_products: []
+            };
+          }
+        })
+      );
+
+      return rulesWithProducts;
     } catch (error) {
       this.logger.error('Failed to get active rules', { error: error.message });
-      throw error;
+      return [];
     }
   }
 
   /**
-   * Get active campaigns for evaluation
+   * Get active campaigns for user
    */
   async getActiveCampaigns(user_id) {
     try {
-      const now = new Date().toISOString();
-      
       const { data, error } = await this.supabase
         .from('campaigns')
         .select('*')
         .eq('user_id', user_id)
-        .eq('status', 'active')
-        .lte('start_date', now)
-        .or(`end_date.is.null,end_date.gte.${now}`)
-        .order('campaign_priority', { ascending: false });
+        .eq('status', 'active');
 
       if (error) throw error;
-      return data;
+
+      // Get trigger and upsell products for each campaign using helper functions
+      const campaignsWithProducts = await Promise.all(
+        data.map(async (campaign) => {
+          try {
+            const [triggerProducts, upsellProducts] = await Promise.all([
+              this.supabase.rpc('get_campaign_trigger_products', { campaign_uuid: campaign.id }),
+              this.supabase.rpc('get_campaign_upsell_products', { campaign_uuid: campaign.id })
+            ]);
+            
+            return {
+              ...campaign,
+              trigger_products: triggerProducts.data || [],
+              upsell_products: upsellProducts.data || []
+            };
+          } catch (error) {
+            this.logger.warn('Failed to get products for campaign', { 
+              campaign_id: campaign.id, 
+              error: error.message 
+            });
+            return {
+              ...campaign,
+              trigger_products: [],
+              upsell_products: []
+            };
+          }
+        })
+      );
+
+      return campaignsWithProducts;
     } catch (error) {
       this.logger.error('Failed to get active campaigns', { error: error.message });
-      throw error;
+      return [];
     }
   }
 

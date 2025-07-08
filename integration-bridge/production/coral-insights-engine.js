@@ -28,19 +28,78 @@ class CoralInsightsEngine {
   }
 
   /**
+   * Validate and normalize product IDs
+   * @param {string|string[]} productIds - Product IDs to validate
+   * @param {string} user_id - User ID for validation
+   * @returns {Promise<string[]>} Validated product IDs
+   */
+  async validateProductIds(productIds, user_id) {
+    if (!productIds) return [];
+    
+    const ids = Array.isArray(productIds) ? productIds : [productIds];
+    const validIds = [];
+    
+    for (const id of ids) {
+      if (!id) continue;
+      
+      // Check if this is a valid UUID format
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      
+      if (isUuid) {
+        // Validate that the product exists in the database
+        try {
+          const { data: product, error } = await this.supabase
+            .from('products')
+            .select('id')
+            .eq('id', id)
+            .eq('user_id', user_id)
+            .single();
+          
+          if (!error && product) {
+            validIds.push(id);
+            this.logger.debug('Validated product ID', { product_id: id });
+          } else {
+            this.logger.warn('Product ID not found in database', { product_id: id, user_id });
+          }
+        } catch (error) {
+          this.logger.warn('Error validating product ID', { product_id: id, error: error.message });
+        }
+      } else {
+        // If it's not a UUID, it might be a different format (e.g., Shopify ID)
+        // We'll accept it but log for debugging
+        this.logger.debug('Non-UUID product ID format', { product_id: id });
+        validIds.push(id);
+      }
+    }
+    
+    return validIds;
+  }
+
+  /**
    * Generate comprehensive insights for UpsellEngine
    */
   async generateUpsellInsights(config) {
-    const { user_id, time_period = '30d', insight_types = ['bundle', 'trend', 'segment'] } = config;
+    const { user_id, time_period = '30d', insight_types = ['bundle', 'trend', 'segment'], products } = config;
     
     try {
-      this.logger.info('Generating upsell insights', { user_id, time_period, insight_types });
+      this.logger.info('Generating upsell insights', { user_id, time_period, insight_types, products_count: products?.length });
+      
+      // Validate provided products if any
+      let validatedProducts = [];
+      if (products && products.length > 0) {
+        const productIds = products.map(p => p.id).filter(Boolean);
+        validatedProducts = await this.validateProductIds(productIds, user_id);
+        this.logger.info('Validated provided products', { 
+          provided_count: products.length, 
+          validated_count: validatedProducts.length 
+        });
+      }
       
       const insights = [];
       
       // Generate bundle opportunities
       if (insight_types.includes('bundle')) {
-        const bundleInsights = await this.generateBundleOpportunities(config);
+        const bundleInsights = await this.generateBundleOpportunities(config, validatedProducts);
         insights.push(...bundleInsights);
       }
       
@@ -52,7 +111,7 @@ class CoralInsightsEngine {
       
       // Generate customer segments
       if (insight_types.includes('segment')) {
-        const segmentInsights = await this.generateCustomerSegments(config);
+        const segmentInsights = await this.generateCustomerSegments(config, validatedProducts);
         insights.push(...segmentInsights);
       }
       
@@ -73,7 +132,7 @@ class CoralInsightsEngine {
   /**
    * Generate bundle opportunities with detailed analysis
    */
-  async generateBundleOpportunities(config) {
+  async generateBundleOpportunities(config, validatedProducts = []) {
     const { user_id, time_period = '30d' } = config;
     
     try {
@@ -83,7 +142,7 @@ class CoralInsightsEngine {
         return [];
       }
 
-      const bundleOpportunities = this.analyzeProductCombinations(orderData);
+      const bundleOpportunities = this.analyzeProductCombinations(orderData, validatedProducts);
       
       return bundleOpportunities.map((opportunity, index) => ({
         id: `bundle-${Date.now()}-${index}`,
@@ -135,7 +194,7 @@ class CoralInsightsEngine {
   /**
    * Generate customer segments for targeted campaigns
    */
-  async generateCustomerSegments(config) {
+  async generateCustomerSegments(config, validatedProducts = []) {
     const { user_id, time_period = '90d' } = config;
     
     try {
@@ -145,7 +204,7 @@ class CoralInsightsEngine {
         return [];
       }
 
-      const segments = this.identifyCustomerSegments(customerData);
+      const segments = this.identifyCustomerSegments(customerData, validatedProducts);
       
       return segments.map((segment, index) => ({
         id: `segment-${Date.now()}-${index}`,
@@ -199,9 +258,19 @@ class CoralInsightsEngine {
    */
   generateUpsellActions(opportunity) {
     // Use existing product ID for the rule if available
-    const ruleId = opportunity.secondary_id && (opportunity.secondary_id.length !== 36 || !opportunity.secondary_id.includes('-')) 
-      ? `bundle-rule-${opportunity.secondary_id}` 
-      : `bundle-rule-${Date.now()}`;
+    const ruleId = this.generateRuleId(opportunity.secondary_id, 'bundle');
+    
+    // Validate that we have actual product IDs
+    const targetProducts = opportunity.secondary_id ? [opportunity.secondary_id] : [];
+    const triggerProducts = opportunity.primary_id ? [opportunity.primary_id] : [];
+    
+    this.logger.debug('Generating upsell actions', {
+      primary_id: opportunity.primary_id,
+      secondary_id: opportunity.secondary_id,
+      rule_id: ruleId,
+      target_products: targetProducts,
+      trigger_products: triggerProducts
+    });
       
     return {
       rules: [
@@ -215,7 +284,7 @@ class CoralInsightsEngine {
               category: opportunity.primary_category,
               category_operator: 'contains'
             },
-            target_products: [opportunity.secondary_id],
+            target_products: targetProducts,
             display_type: 'popup',
             priority: Math.min(opportunity.frequency * 10, 80),
             status: 'active'
@@ -236,13 +305,13 @@ class CoralInsightsEngine {
               target_value: opportunity.estimated_revenue,
               goal_description: `Increase revenue through ${opportunity.primary} + ${opportunity.secondary} bundles`
             },
-            trigger_products: [opportunity.primary_id],
-            upsell_products: [opportunity.secondary_id],
+            trigger_products: triggerProducts,
+            upsell_products: targetProducts,
             pricing_rules: [
               {
                 type: 'percentage_discount',
                 value: 10,
-                applies_to: [opportunity.secondary_id],
+                applies_to: targetProducts,
                 conditions: {
                   cart_value_min: opportunity.primary_price
                 }
@@ -259,6 +328,38 @@ class CoralInsightsEngine {
         }
       ]
     };
+  }
+
+  /**
+   * Generate a rule ID based on product ID or timestamp
+   * @param {string} productId - Product ID to use for rule ID
+   * @param {string} prefix - Prefix for the rule ID
+   * @returns {string} Generated rule ID
+   */
+  generateRuleId(productId, prefix = 'rule') {
+    if (productId && this.isValidProductId(productId)) {
+      return `${prefix}-${productId}`;
+    }
+    return `${prefix}-${Date.now()}`;
+  }
+
+  /**
+   * Check if a product ID is valid (not a generated UUID)
+   * @param {string} productId - Product ID to validate
+   * @returns {boolean} True if valid product ID
+   */
+  isValidProductId(productId) {
+    if (!productId) return false;
+    
+    // If it's a UUID format, it might be a generated one
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
+    
+    // If it's not a UUID, it's likely a real product ID (e.g., Shopify ID)
+    if (!isUuid) return true;
+    
+    // If it is a UUID, check if it looks like a generated one vs a real product UUID
+    // This is a heuristic - you might want to adjust based on your UUID generation pattern
+    return false; // For now, assume UUIDs are generated
   }
 
   /**
@@ -303,9 +404,18 @@ class CoralInsightsEngine {
   generateSegmentActions(segment) {
     // Use existing product ID for the rule if available
     const firstProduct = segment.recommended_products && segment.recommended_products.length > 0 ? segment.recommended_products[0] : null;
-    const ruleId = firstProduct && (firstProduct.length !== 36 || !firstProduct.includes('-')) 
-      ? `segment-rule-${firstProduct}` 
-      : `segment-rule-${Date.now()}`;
+    const ruleId = this.generateRuleId(firstProduct, 'segment');
+    
+    // Validate that we have actual product IDs
+    const targetProducts = segment.recommended_products || [];
+    const triggerProducts = segment.trigger_products || [];
+    
+    this.logger.debug('Generating segment actions', {
+      segment_name: segment.name,
+      recommended_products: targetProducts,
+      trigger_products: triggerProducts,
+      rule_id: ruleId
+    });
       
     return {
       rules: [
@@ -316,7 +426,7 @@ class CoralInsightsEngine {
             description: `Special offers for ${segment.name} customers`,
             trigger_type: 'customer_segment',
             trigger_conditions: segment.conditions,
-            target_products: segment.recommended_products,
+            target_products: targetProducts,
             display_type: 'popup',
             priority: segment.priority,
             status: 'active'
@@ -340,8 +450,8 @@ class CoralInsightsEngine {
             target_audience: {
               customer_segments: [segment.name]
             },
-            trigger_products: segment.trigger_products,
-            upsell_products: segment.recommended_products,
+            trigger_products: triggerProducts,
+            upsell_products: targetProducts,
             priority_level: 'medium',
             status: 'draft'
           }
@@ -481,7 +591,7 @@ class CoralInsightsEngine {
   }
 
   // Analysis methods
-  analyzeProductCombinations(orderData) {
+  analyzeProductCombinations(orderData, validatedProducts = []) {
     const combinations = new Map();
     
     orderData.forEach(order => {
@@ -525,7 +635,7 @@ class CoralInsightsEngine {
         confidence: Math.min(combo.frequency / 10, 0.95),
         estimated_revenue: combo.frequency * combo.secondary_price * 0.1 // 10% conversion rate
       }))
-      .filter(combo => combo.frequency >= 2)
+      .filter(combo => combo.frequency >= 2 && validatedProducts.includes(combo.primary_id) && validatedProducts.includes(combo.secondary_id))
       .sort((a, b) => b.frequency - a.frequency)
       .slice(0, 10);
   }
@@ -564,7 +674,7 @@ class CoralInsightsEngine {
     return trends;
   }
 
-  identifyCustomerSegments(customerData) {
+  identifyCustomerSegments(customerData, validatedProducts = []) {
     const segments = [];
     
     // High-value customers
@@ -578,7 +688,7 @@ class CoralInsightsEngine {
         campaign_type: 'retention',
         target_conversion_rate: 0.15,
         conditions: [{ type: 'total_spent', min: 200 }],
-        recommended_products: this.getRecommendedProducts(highValue),
+        recommended_products: this.getRecommendedProducts(highValue, validatedProducts),
         trigger_products: [],
         action_type: 'create_rule'
       });
@@ -595,7 +705,7 @@ class CoralInsightsEngine {
         campaign_type: 'cross-sell',
         target_conversion_rate: 0.12,
         conditions: [{ type: 'orders_count', min: 2 }],
-        recommended_products: this.getRecommendedProducts(frequent),
+        recommended_products: this.getRecommendedProducts(frequent, validatedProducts),
         trigger_products: [],
         action_type: 'create_rule'
       });
@@ -612,7 +722,7 @@ class CoralInsightsEngine {
         campaign_type: 'cross-sell',
         target_conversion_rate: 0.08,
         conditions: [{ type: 'orders_count', max: 1 }],
-        recommended_products: this.getRecommendedProducts(newCustomers),
+        recommended_products: this.getRecommendedProducts(newCustomers, validatedProducts),
         trigger_products: [],
         action_type: 'create_rule'
       });
@@ -658,10 +768,32 @@ class CoralInsightsEngine {
     return 'general';
   }
 
-  getRecommendedProducts(customers) {
-    // This would be implemented based on customer purchase history
-    // For now, return empty array
-    return [];
+  getRecommendedProducts(customers, validatedProducts = []) {
+    // If we have validated products, use them
+    if (validatedProducts.length > 0) {
+      // Return a subset of validated products based on customer segment
+      const segmentSize = Math.min(validatedProducts.length, 3); // Max 3 products per segment
+      return validatedProducts.slice(0, segmentSize);
+    }
+    
+    // Otherwise, try to get products from customer purchase history
+    const productFrequency = {};
+    
+    customers.forEach(customer => {
+      if (customer.purchases) {
+        customer.purchases.forEach(purchase => {
+          if (purchase.product_id) {
+            productFrequency[purchase.product_id] = (productFrequency[purchase.product_id] || 0) + 1;
+          }
+        });
+      }
+    });
+    
+    // Return top products by frequency
+    return Object.entries(productFrequency)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 3)
+      .map(([productId]) => productId);
   }
 
   calculateTrend(data, metric) {
