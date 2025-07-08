@@ -92,13 +92,13 @@ class CoralResearchAgent:
         self.supabase = supabase
         
     async def analyze_user_data(self, user_id: str, time_range_days: int = 30, sent_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Analyze user's data and generate insights"""
-        logger.info(f"Starting analysis for user {user_id}")
+        """Analyze user's data and generate insights - AI ONLY, NO FALLBACKS"""
+        logger.info(f"Starting AI analysis for user {user_id}")
         
-        # Check if we have required services
+        # CRITICAL: Require AI model - no fallbacks allowed
         if not self.model:
-            logger.warning("No Groq model connection - using fallback mode")
-            return await self._generate_fallback_analysis(user_id, time_range_days)
+            logger.error("CRITICAL: No AI model available. Cannot proceed without AI insights.")
+            raise Exception("AI model not available. Please check GROQ_API_KEY environment variable.")
         
         # Use sent data if available, otherwise fetch from Supabase
         if sent_data:
@@ -108,8 +108,8 @@ class CoralResearchAgent:
             logger.info("Fetching data from Supabase")
             data = await self._fetch_user_data(user_id, time_range_days)
         else:
-            logger.warning("No data source available - using demo mode")
-            return await self._generate_demo_analysis(user_id, time_range_days)
+            logger.error("CRITICAL: No data source available. Cannot generate AI insights without data.")
+            raise Exception("No data source available. Please check Supabase connection or provide data.")
         
         # DEBUG: Log what data we received
         logger.info(f"=== DATA RECEIVED DEBUG ===")
@@ -397,14 +397,21 @@ class CoralResearchAgent:
             raise HTTPException(status_code=500, detail=f"Failed to fetch user data: {str(e)}")
     
     async def _generate_insights(self, data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-        """Generate insights from the data using AI"""
+        """Generate insights from the data using AI - NO FALLBACKS ALLOWED"""
         
         # Create a summary of the data for AI analysis
         data_summary = self._create_data_summary(data)
         
+        # Ensure we have a model connection
+        if not self.model:
+            logger.error("CRITICAL: No AI model available. Cannot generate insights without AI.")
+            raise Exception("AI model not available. Please check GROQ_API_KEY environment variable.")
+        
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a business intelligence expert specializing in e-commerce upsell optimization. 
             Analyze the provided data and generate actionable insights for improving upsell performance.
+            
+            CRITICAL: You MUST return ONLY valid JSON. No explanations, no markdown, no extra text.
             
             Focus on:
             1. Customer behavior patterns from orders and cart events
@@ -418,7 +425,7 @@ class CoralResearchAgent:
             
             {json.dumps(data_summary, indent=2)}
             
-            Generate insights in this JSON format:
+            Generate insights in this EXACT JSON format (no extra text):
             {{
                 "customer_behavior_insights": [
                     {{
@@ -451,13 +458,66 @@ class CoralResearchAgent:
             }}""")
         ])
         
-        try:
-            response = await self.model.ainvoke(prompt.format_messages())
-            insights = json.loads(response.content)
-            return insights
-        except Exception as e:
-            logger.error(f"Error generating insights: {str(e)}")
-            return self._generate_fallback_insights(data_summary)
+        # Retry logic for AI insights
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Attempting AI insight generation (attempt {attempt + 1}/{max_retries})")
+                response = await self.model.ainvoke(prompt.format_messages())
+                
+                # Clean the response content
+                content = response.content.strip()
+                logger.info(f"AI response received: {content[:200]}...")
+                
+                # Remove markdown formatting if present
+                if content.startswith('```json'):
+                    content = content[7:]
+                if content.endswith('```'):
+                    content = content[:-3]
+                content = content.strip()
+                
+                # Try to parse JSON
+                try:
+                    insights = json.loads(content)
+                    logger.info("Successfully parsed AI insights JSON")
+                    
+                    # Validate the insights structure
+                    required_keys = ["customer_behavior_insights", "performance_insights", "product_insights", "revenue_opportunities"]
+                    if all(key in insights for key in required_keys):
+                        logger.info("AI insights validation successful")
+                        return insights
+                    else:
+                        logger.warning(f"AI insights missing required keys. Found: {list(insights.keys())}")
+                        raise Exception("Invalid insights structure")
+                        
+                except json.JSONDecodeError as json_error:
+                    logger.error(f"JSON parsing error on attempt {attempt + 1}: {json_error}")
+                    logger.error(f"Content that failed to parse: {content}")
+                    
+                    # Try to extract JSON from the response
+                    import re
+                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match:
+                        try:
+                            insights = json.loads(json_match.group())
+                            logger.info("Successfully extracted JSON from response")
+                            return insights
+                        except:
+                            logger.warning("Failed to extract JSON from response")
+                    
+                    if attempt == max_retries - 1:
+                        raise Exception(f"Failed to parse AI response after {max_retries} attempts")
+                    continue
+                    
+            except Exception as e:
+                logger.error(f"AI insight generation failed on attempt {attempt + 1}: {str(e)}")
+                if attempt == max_retries - 1:
+                    logger.error("CRITICAL: All AI insight generation attempts failed. Cannot proceed without AI insights.")
+                    raise Exception(f"AI insight generation failed after {max_retries} attempts: {str(e)}")
+                continue
+        
+        # This should never be reached, but just in case
+        raise Exception("AI insight generation failed - unexpected error")
     
     async def _generate_rule_suggestions(self, data: Dict[str, Any], insights: Dict[str, Any], user_id: str) -> List[Dict[str, Any]]:
         """Generate specific upsell rule suggestions based on actual data analysis"""
@@ -591,8 +651,8 @@ Return ONLY the JSON array. No explanations."""),
                 
         except Exception as e:
             logger.error(f"Error generating AI rules: {str(e)}")
-            logger.info("Falling back to data-driven rule generation")
-            return self._generate_data_driven_rules(data)
+            logger.error("CRITICAL: Cannot fall back to data-driven rules. AI rules are required.")
+            raise Exception(f"AI rule generation failed: {str(e)}")
     
     def _process_rule_for_upsell_engine(self, rule: Dict[str, Any], analysis: Dict[str, Any], products: List[Dict]) -> Dict[str, Any]:
         """Process AI-generated rule to match UpsellEngine schema exactly"""
@@ -1091,8 +1151,8 @@ Return ONLY the JSON array."""),
                 
         except Exception as e:
             logger.error(f"Error generating AI campaigns: {str(e)}")
-            logger.info("Falling back to data-driven campaign generation")
-            return self._generate_data_driven_campaigns(data)
+            logger.error("CRITICAL: Cannot fall back to data-driven campaigns. AI campaigns are required.")
+            raise Exception(f"AI campaign generation failed: {str(e)}")
     
     def _analyze_data_for_campaigns(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze actual data to create data-driven campaign insights"""
@@ -1380,28 +1440,59 @@ Return ONLY the JSON array."""),
                 {
                     "insight": f"Analyzing {data_summary.get('customer_behavior', {}).get('total_orders', 0)} orders for patterns",
                     "impact": "medium",
-                    "action": "Review order patterns for upsell opportunities"
+                    "action": "Review order patterns for upsell opportunities",
+                    "data": {
+                        "total_orders": data_summary.get('customer_behavior', {}).get('total_orders', 0),
+                        "total_cart_events": data_summary.get('customer_behavior', {}).get('total_cart_events', 0),
+                        "analysis_period": data_summary.get('customer_behavior', {}).get('analysis_period_days', 30),
+                        "confidence": 0.6
+                    }
                 }
             ],
             "performance_insights": [
                 {
                     "insight": f"You have {data_summary.get('performance', {}).get('total_campaigns', 0)} campaigns and {data_summary.get('performance', {}).get('total_rules', 0)} rules",
                     "impact": "medium", 
-                    "action": "Analyze campaign and rule performance"
+                    "action": "Analyze campaign and rule performance",
+                    "data": {
+                        "total_campaigns": data_summary.get('performance', {}).get('total_campaigns', 0),
+                        "total_rules": data_summary.get('performance', {}).get('total_rules', 0),
+                        "total_upsell_events": data_summary.get('performance', {}).get('total_upsell_events', 0),
+                        "recommended_minimum": 3,
+                        "confidence": 0.8
+                    }
                 }
             ],
             "product_insights": [
                 {
                     "insight": f"You have {data_summary.get('products', {}).get('total_products', 0)} products available for upsells",
                     "impact": "medium",
-                    "action": "Review product catalog for bundling opportunities"
+                    "action": "Review product catalog for bundling opportunities",
+                    "data": {
+                        "total_products": data_summary.get('products', {}).get('total_products', 0),
+                        "price_range": data_summary.get('products', {}).get('product_price_range', {}),
+                        "recommended_bundles": 2,
+                        "confidence": 0.7
+                    }
                 }
             ],
             "revenue_opportunities": [
                 {
                     "opportunity": "Increase upsell coverage",
                     "potential_impact": "10-20% revenue increase",
-                    "implementation": "Create more targeted upsell rules and campaigns"
+                    "implementation": "Create more targeted upsell rules and campaigns",
+                    "data": {
+                        "current_coverage": data_summary.get('performance', {}).get('total_rules', 0) + data_summary.get('performance', {}).get('total_campaigns', 0),
+                        "recommended_coverage": 5,
+                        "potential_revenue_increase": "10-20%",
+                        "implementation_steps": [
+                            "Create cart value-based upsell rules",
+                            "Set up exit intent campaigns", 
+                            "Implement product bundle suggestions"
+                        ],
+                        "estimated_impact": "medium",
+                        "confidence": 0.7
+                    }
                 }
             ]
         }
