@@ -418,64 +418,24 @@ class CoralResearchAgent:
             raise Exception(f"AI model is not responding. Please check GROQ_API_KEY and model connection: {str(e)}")
         
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a business intelligence expert specializing in e-commerce upsell optimization. 
-            Analyze the provided data and generate actionable insights for improving upsell performance.
-            
-            CRITICAL: You MUST return ONLY valid JSON. No explanations, no markdown, no extra text.
-            
-            Focus on:
-            1. Customer behavior patterns from orders and cart events
-            2. Current upsell performance and campaign effectiveness
-            3. Product performance and bundling opportunities
-            4. Rule optimization opportunities
-            5. Revenue optimization potential
-            
-            Provide specific, actionable insights that can be used to create better upsell rules and campaigns."""),
-            ("user", f"""Analyze this e-commerce data and provide insights:
-            
-            {json.dumps(data_summary, indent=2)}
-            
-            CRITICAL: Return ONLY valid JSON. No explanations, no markdown, no extra text.
-            
-            Generate insights in this EXACT JSON format:
-            {{
-                "customer_behavior_insights": [
-                    {{
-                        "insight": "description",
-                        "impact": "high|medium|low",
-                        "action": "specific action to take"
-                    }}
-                ],
-                "performance_insights": [
-                    {{
-                        "insight": "description", 
-                        "impact": "high|medium|low",
-                        "action": "specific action to take"
-                    }}
-                ],
-                "product_insights": [
-                    {{
-                        "insight": "description",
-                        "impact": "high|medium|low", 
-                        "action": "specific action to take"
-                    }}
-                ],
-                "revenue_opportunities": [
-                    {{
-                        "opportunity": "description",
-                        "potential_impact": "estimated revenue increase",
-                        "implementation": "how to implement"
-                    }}
-                ]
-            }}
-            
-            CRITICAL RULES:
-            1. Return ONLY the JSON object - no markdown, no explanations
-            2. Use double quotes for all strings
-            3. No trailing commas
-            4. No extra whitespace or newlines before the opening brace
-            5. Ensure all required keys are present
-            6. Each insight should be specific and actionable based on the data""")
+            ("system", "You are a JSON generator. Return ONLY valid JSON. No text, no explanations, no markdown."),
+            ("user", f"""Generate insights JSON for this e-commerce data: {json.dumps(data_summary, indent=2)}
+
+Return this exact JSON structure:
+{{
+    "customer_behavior_insights": [
+        {{"insight": "description", "impact": "high|medium|low", "action": "specific action"}}
+    ],
+    "performance_insights": [
+        {{"insight": "description", "impact": "high|medium|low", "action": "specific action"}}
+    ],
+    "product_insights": [
+        {{"insight": "description", "impact": "high|medium|low", "action": "specific action"}}
+    ],
+    "revenue_opportunities": [
+        {{"opportunity": "description", "potential_impact": "estimated revenue increase", "implementation": "how to implement"}}
+    ]
+}}""")
         ])
         
         # Retry logic for AI insights
@@ -594,73 +554,26 @@ class CoralResearchAgent:
         
         # Create a much simpler, more focused prompt
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert e-commerce analyst. Create specific, data-driven upsell rules based on the provided business data.
+            ("system", "You are a JSON generator. Return ONLY valid JSON. No text, no explanations, no markdown."),
+            ("user", f"""Generate upsell rules JSON for this business data: {json.dumps(data_analysis, indent=2)}
 
-CRITICAL: You must return ONLY a valid JSON array. No explanations, no markdown, no extra text. Just pure JSON.
-
-UpsellEngine Rule Schema (EXACT format required):
-{
-  "name": "Rule Name",
-  "description": "Optional description",
-  "trigger_type": "category" | "cart_value" | "time_based",
-  "trigger_conditions": {
-    // Varies by trigger_type (see details below)
-  },
-  "target_products": ["product_id_1", "product_id_2"],
-  "ai_copy_id": "optional_template_id",
-  "display_type": "popup" | "cart" | "checkout",
-  "display_settings": {},
-  "priority": 0,
-  "status": "draft" | "active" | "inactive",
-  "use_ai": false
-}
-
-Trigger Types:
-1. Cart Value: {"cart_value_operator": "greater_than"|"less_than"|"between", "cart_value": 100.00, "cart_value_min": 50.00, "cart_value_max": 200.00}
-2. Category: {"category": "Electronics", "category_operator": "contains"|"equals"|"not_contains"}
-3. Time-based: {"time_on_site_operator": "greater_than"|"less_than"|"equals"|"between", "time_on_site_min": 60, "time_on_site_max": 300}
-
-Example format:
+Return this exact JSON array format:
 [
-  {
-    "name": "High-Value Cart Upsell",
-    "description": "Show premium products when cart value exceeds $100",
-    "trigger_type": "cart_value",
-    "trigger_conditions": {
+  {{
+    "name": "Rule Name",
+    "description": "Description",
+    "trigger_type": "cart_value|category|time_based",
+    "trigger_conditions": {{
       "cart_value_operator": "greater_than",
       "cart_value": 100.00
-    },
+    }},
     "target_products": ["product_id_1", "product_id_2"],
     "display_type": "popup",
-    "display_settings": {},
+    "display_settings": {{}},
     "priority": 4,
     "status": "draft"
-  }
-]
-
-IMPORTANT: Return ONLY the JSON array. No explanations."""),
-            ("user", f"""Based on this business data, create 5-7 diverse upsell rules:
-
-BUSINESS DATA:
-- Product Price Range: ${data_analysis['price_range']['min']} - ${data_analysis['price_range']['max']} (avg: ${data_analysis['price_range']['average']})
-- Total Orders: {data_analysis['total_orders']}
-- Cart Events: {data_analysis['total_cart_events']}
-- Existing Campaigns: {data_analysis['existing_campaigns']}
-- Existing Rules: {data_analysis['existing_rules']}
-- Sample Products: {data_analysis['sample_products']}
-- Order Patterns: {data_analysis['order_patterns']}
-
-Create a MIX of rule types:
-1. 2-3 cart_value rules (different thresholds: entry-level, mid-range, premium)
-2. 1-2 category rules (if different product categories exist)
-3. 1-2 time_based rules (engagement, abandonment recovery)
-4. Use actual price thresholds and business data
-5. Include target_products array with product IDs
-6. Use correct trigger_conditions format for each type
-7. Set appropriate display_type (popup/cart/checkout)
-8. Vary priority levels (3-9)
-
-Return ONLY the JSON array. No explanations."""),
+  }}
+]""")
         ])
         
         try:
@@ -1135,13 +1048,12 @@ Return ONLY the JSON array. No explanations."""),
         
         # Create a simpler, focused prompt
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert e-commerce marketer. Create specific, data-driven campaigns based on the provided business data.
+            ("system", "You are a JSON generator. Return ONLY valid JSON. No text, no explanations, no markdown."),
+            ("user", f"""Generate campaigns JSON for this business data: {json.dumps(data_analysis, indent=2)}
 
-IMPORTANT: Return ONLY valid JSON array. No explanations, no markdown, just pure JSON.
-
-Example format:
+Return this exact JSON array format:
 [
-  {
+  {{
     "name": "Campaign Name",
     "description": "Description",
     "campaign_type": "popup",
@@ -1150,30 +1062,12 @@ Example format:
     "trigger_scroll_percentage": 50,
     "target_pages": ["/cart", "/checkout"],
     "excluded_pages": [],
-    "settings": {"position": "center", "style": "modern"},
-    "content": {"title": "Title", "message": "Message", "cta_text": "CTA", "offer": "Offer"},
+    "settings": {{"position": "center", "style": "modern"}},
+    "content": {{"title": "Title", "message": "Message", "cta_text": "CTA", "offer": "Offer"}},
     "expected_impact": "high",
     "implementation_notes": "Notes"
-  }
-]"""),
-            ("user", f"""Based on this business data, create 3-5 specific campaigns:
-
-BUSINESS DATA:
-- Product Price Range: ${data_analysis['price_range']['min']} - ${data_analysis['price_range']['max']} (avg: ${data_analysis['price_range']['average']})
-- Total Orders: {data_analysis['total_orders']}
-- Cart Events: {data_analysis['total_cart_events']}
-- Abandonment Rate: {data_analysis['abandonment_rate']:.1%}
-- Average Order Value: ${data_analysis['avg_order_value']:.0f}
-- Sample Products: {data_analysis['sample_products']}
-
-Create campaigns that:
-1. Address real customer behavior patterns
-2. Use actual pricing data for offers
-3. Target specific abandonment or conversion issues
-4. Have realistic impact expectations
-5. Include specific implementation strategies
-
-Return ONLY the JSON array."""),
+  }}
+]""")
         ])
         
         try:
