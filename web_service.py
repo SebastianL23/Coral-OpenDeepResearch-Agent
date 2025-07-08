@@ -406,6 +406,16 @@ class CoralResearchAgent:
         if not self.model:
             logger.error("CRITICAL: No AI model available. Cannot generate insights without AI.")
             raise Exception("AI model not available. Please check GROQ_API_KEY environment variable.")
+        # AI model test to ensure model is responsive
+        try:
+            test_prompt = ChatPromptTemplate.from_messages([
+                ("user", "Respond with only the word 'test'")
+            ])
+            test_response = await self.model.ainvoke(test_prompt.format_messages())
+            logger.info(f"AI model test successful: {test_response.content}")
+        except Exception as e:
+            logger.error(f"AI model test failed: {str(e)}")
+            raise Exception(f"AI model is not responding. Please check GROQ_API_KEY and model connection: {str(e)}")
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a business intelligence expert specializing in e-commerce upsell optimization. 
@@ -681,11 +691,11 @@ Return ONLY the JSON array. No explanations."""),
                         rules = json.loads(json_match.group())
                         logger.info("Successfully extracted JSON from response")
                     except:
-                        logger.warning("Failed to extract JSON, using data-driven fallback")
-                        return self._generate_data_driven_rules(data)
+                        logger.error("Failed to extract JSON from AI response. AI rules are required.")
+                        raise Exception("AI rule generation failed: Could not extract JSON from AI response.")
                 else:
-                    logger.warning("No JSON array found in response, using data-driven fallback")
-                    return self._generate_data_driven_rules(data)
+                    logger.error("No JSON array found in AI response. AI rules are required.")
+                    raise Exception("AI rule generation failed: No JSON array found in AI response.")
             
             if isinstance(rules, list) and len(rules) > 0:
                 logger.info(f"Successfully generated {len(rules)} AI-driven rules")
@@ -703,12 +713,12 @@ Return ONLY the JSON array. No explanations."""),
                 
                 return processed_rules
             else:
-                logger.warning("AI returned empty or invalid rules, using data-driven fallback")
-                return self._generate_data_driven_rules(data)
+                logger.error("AI returned empty or invalid rules. AI rules are required.")
+                raise Exception("AI rule generation failed: AI returned empty or invalid rules.")
                 
         except Exception as e:
             logger.error(f"Error generating AI rules: {str(e)}")
-            logger.error("CRITICAL: Cannot fall back to data-driven rules. AI rules are required.")
+            logger.error("CRITICAL: AI rules are required. No fallback allowed.")
             raise Exception(f"AI rule generation failed: {str(e)}")
     
     def _process_rule_for_upsell_engine(self, rule: Dict[str, Any], analysis: Dict[str, Any], products: List[Dict]) -> Dict[str, Any]:
@@ -1193,22 +1203,22 @@ Return ONLY the JSON array."""),
                         campaigns = json.loads(json_match.group())
                         logger.info("Successfully extracted JSON from response")
                     except:
-                        logger.warning("Failed to extract JSON, using data-driven fallback")
-                        return self._generate_data_driven_campaigns(data)
+                        logger.error("Failed to extract JSON from AI response. AI campaigns are required.")
+                        raise Exception("AI campaign generation failed: Could not extract JSON from AI response.")
                 else:
-                    logger.warning("No JSON array found in response, using data-driven fallback")
-                    return self._generate_data_driven_campaigns(data)
+                    logger.error("No JSON array found in AI response. AI campaigns are required.")
+                    raise Exception("AI campaign generation failed: No JSON array found in AI response.")
             
             if isinstance(campaigns, list) and len(campaigns) > 0:
                 logger.info(f"Successfully generated {len(campaigns)} AI-driven campaigns")
                 return campaigns
             else:
-                logger.warning("AI returned empty or invalid campaigns, using data-driven fallback")
-                return self._generate_data_driven_campaigns(data)
+                logger.error("AI returned empty or invalid campaigns. AI campaigns are required.")
+                raise Exception("AI campaign generation failed: AI returned empty or invalid campaigns.")
                 
         except Exception as e:
             logger.error(f"Error generating AI campaigns: {str(e)}")
-            logger.error("CRITICAL: Cannot fall back to data-driven campaigns. AI campaigns are required.")
+            logger.error("CRITICAL: AI campaigns are required. No fallback allowed.")
             raise Exception(f"AI campaign generation failed: {str(e)}")
     
     def _analyze_data_for_campaigns(self, data: Dict[str, Any]) -> Dict[str, Any]:
