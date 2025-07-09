@@ -12,6 +12,7 @@ from langchain.chat_models import init_chat_model
 from langchain.prompts import ChatPromptTemplate
 import pandas as pd
 from datetime import datetime, timedelta
+import traceback
 
 load_dotenv()
 
@@ -59,7 +60,7 @@ if not groq_api_key:
 else:
     try:
         model = init_chat_model(
-            model="llama3-70b-8192",
+            model="llama3.1-8b-instant",  # Better for JSON generation
             model_provider="groq",
             api_key=groq_api_key,
             temperature=0.1,
@@ -407,15 +408,16 @@ class CoralResearchAgent:
             logger.error("CRITICAL: No AI model available. Cannot generate insights without AI.")
             raise Exception("AI model not available. Please check GROQ_API_KEY environment variable.")
         # AI model test to ensure model is responsive
-        try:
-            test_prompt = ChatPromptTemplate.from_messages([
-                ("user", "Respond with only the word 'test'")
-            ])
-            test_response = await self.model.ainvoke(test_prompt.format_messages())
-            logger.info(f"AI model test successful: {test_response.content}")
-        except Exception as e:
-            logger.error(f"AI model test failed: {str(e)}")
-            raise Exception(f"AI model is not responding. Please check GROQ_API_KEY and model connection: {str(e)}")
+        # TEMPORARILY DISABLED FOR DEBUGGING
+        # try:
+        #     test_prompt = ChatPromptTemplate.from_messages([
+        #         ("user", "Respond with only the word 'test'")
+        #     ])
+        #     test_response = await self.model.ainvoke(test_prompt.format_messages())
+        #     logger.info(f"AI model test successful: {test_response.content}")
+        # except Exception as e:
+        #     logger.error(f"AI model test failed: {str(e)}")
+        #     raise Exception(f"AI model is not responding. Please check GROQ_API_KEY and model connection: {str(e)}")
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", "You are a JSON generator. Return ONLY valid JSON. No text, no explanations, no markdown."),
@@ -1635,6 +1637,9 @@ async def analyze_user_data(request: AnalysisRequest):
         
     except Exception as e:
         logger.error(f"Analysis failed for user {request.user_id}: {str(e)}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        logger.error(f"Exception details: {e}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 @app.post("/debug")
