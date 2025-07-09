@@ -15,4 +15,4 @@ RUN uv sync --no-dev
 
 EXPOSE 5555
 
-CMD ["uv", "run", "python", "web_service.py"]
+CMD ["uv", "run", "uvicorn", "web_service:app", "--host", "0.0.0.0", "--port", "$PORT"]
