@@ -60,7 +60,7 @@ if not groq_api_key:
 else:
     try:
         model = init_chat_model(
-            model="llama3.1-8b-instant",  # Better for JSON generation
+            model="llama3-70b-8192",  # Reliable for JSON generation
             model_provider="groq",
             api_key=groq_api_key,
             temperature=0.1,
