@@ -1,0 +1,16 @@
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+langchain==0.3.25
+langchain-community==0.3.24
+langchain-experimental==0.3.4
+langchain-groq==0.3.4
+langchain-mcp-adapters==0.1.7
+langchain-openai==0.3.26
+open-deep-research>=0.0.15
+requests>=2.32.3
+supabase>=2.0.0
+pandas>=2.0.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+azure-core>=1.34.0
+azure-search-documents>=11.5.2 
