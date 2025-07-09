@@ -598,15 +598,30 @@ Return this exact JSON structure:
         data_analysis = self._analyze_data_for_rules(data)
         
         # Create a much simpler, more focused prompt using plain messages
+        # Include product information so AI can generate matching rule names
+        products_info = []
+        for product in data.get('shopify_products', [])[:10]:  # Limit to first 10 products
+            products_info.append({
+                'id': product.get('id'),
+                'title': product.get('title', 'Unknown'),
+                'price': product.get('price', 0),
+                'product_type': product.get('product_type', 'general')
+            })
+        
         messages = [
             ("system", "You are a JSON generator. Return ONLY valid JSON. No text, no explanations, no markdown."),
             ("user", f"""Generate upsell rules JSON for this business data: {json.dumps(data_analysis, indent=2)}
 
+Available products for targeting:
+{json.dumps(products_info, indent=2)}
+
+IMPORTANT: When creating rule names and descriptions, reference the actual product names from the available products list above. Do not make up product names that don't exist.
+
 Return this exact JSON array format:
 [
   {{
-    "name": "Rule Name",
-    "description": "Description",
+    "name": "Rule Name (should reference actual products)",
+    "description": "Description (should mention actual product names)",
     "trigger_type": "cart_value|category|time_based",
     "trigger_conditions": {{
       "cart_value_operator": "greater_than",
@@ -702,12 +717,24 @@ Return this exact JSON array format:
         
         # Ensure target_products is populated if empty
         if not processed_rule["target_products"]:
-            processed_rule["target_products"] = self._select_target_products(
-                products, 
-                processed_rule["trigger_type"], 
-                processed_rule["trigger_conditions"], 
-                analysis
+            # Try to match products mentioned in the rule name first
+            rule_name_products = self._extract_products_from_rule_name(
+                processed_rule["name"], 
+                products
             )
+            
+            if rule_name_products:
+                # Use products mentioned in the rule name
+                processed_rule["target_products"] = rule_name_products
+                logger.info(f"Matched products from rule name: {rule_name_products}")
+            else:
+                # Fall back to intelligent product selection
+                processed_rule["target_products"] = self._select_target_products(
+                    products, 
+                    processed_rule["trigger_type"], 
+                    processed_rule["trigger_conditions"], 
+                    analysis
+                )
         
         # Validate trigger_conditions format
         processed_rule["trigger_conditions"] = self._validate_trigger_conditions(
@@ -716,6 +743,45 @@ Return this exact JSON array format:
         )
         
         return processed_rule
+    
+    def _extract_products_from_rule_name(self, rule_name: str, products: List[Dict]) -> List[str]:
+        """Extract product IDs from rule name by matching product names"""
+        if not rule_name or not products:
+            return []
+        
+        # Convert rule name to lowercase for matching
+        rule_name_lower = rule_name.lower()
+        
+        # Create a mapping of product names to IDs
+        product_mapping = {}
+        for product in products:
+            title = product.get('title', '').lower()
+            if title:
+                product_mapping[title] = product.get('id')
+                # Also add partial matches (e.g., "Wireless Headphones" matches "Premium Wireless Headphones")
+                words = title.split()
+                for i in range(len(words)):
+                    for j in range(i + 1, len(words) + 1):
+                        partial = ' '.join(words[i:j])
+                        if len(partial) > 3:  # Only consider meaningful partials
+                            product_mapping[partial] = product.get('id')
+        
+        # Find products mentioned in the rule name
+        matched_products = []
+        for product_name, product_id in product_mapping.items():
+            if product_name in rule_name_lower and product_id:
+                matched_products.append(product_id)
+                logger.info(f"Matched product '{product_name}' from rule name '{rule_name}'")
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_products = []
+        for product_id in matched_products:
+            if product_id not in seen:
+                seen.add(product_id)
+                unique_products.append(product_id)
+        
+        return unique_products[:3]  # Limit to 3 products
     
     def _validate_trigger_conditions(self, trigger_type: str, conditions: Dict[str, Any]) -> Dict[str, Any]:
         """Validate and format trigger_conditions to match UpsellEngine schema"""
