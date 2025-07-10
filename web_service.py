@@ -1769,12 +1769,37 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {
-        "status": "healthy", 
-        "service": "Coral Research Agent",
-        "supabase_connected": supabase is not None,
-        "groq_connected": model is not None
-    }
+    # Check if the service can start up properly
+    try:
+        # Basic service health - if we can reach this endpoint, the service is running
+        health_status = "healthy"
+        
+        # Check if we have the minimum required configuration
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if not groq_api_key:
+            health_status = "degraded"
+            logger.warning("Health check: GROQ_API_KEY not found - service will be limited")
+        
+        return {
+            "status": health_status, 
+            "service": "Coral Research Agent",
+            "supabase_connected": supabase is not None,
+            "groq_connected": model is not None,
+            "environment": {
+                "groq_api_key_set": bool(groq_api_key),
+                "supabase_url_set": bool(os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")),
+                "port": os.getenv("PORT", "5555")
+            }
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return {
+            "status": "unhealthy",
+            "service": "Coral Research Agent", 
+            "error": str(e),
+            "supabase_connected": False,
+            "groq_connected": False
+        }
 
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_user_data(request: AnalysisRequest):
