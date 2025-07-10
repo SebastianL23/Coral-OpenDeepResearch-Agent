@@ -615,13 +615,17 @@ Return this exact JSON structure:
 Available products for targeting:
 {json.dumps(products_info, indent=2)}
 
-IMPORTANT: When creating rule names and descriptions, reference the actual product names from the available products list above. Do not make up product names that don't exist.
+CRITICAL INSTRUCTIONS:
+1. Use ONLY product names from the available products list above
+2. Do NOT invent product names that don't exist
+3. If you reference a product in the rule name, include its ID in target_products
+4. Keep rule names concise and product-focused
 
 Return this exact JSON array format:
 [
   {{
-    "name": "Rule Name (should reference actual products)",
-    "description": "Description (should mention actual product names)",
+    "name": "Product Name Upsell (use actual product names only)",
+    "description": "Upsell for [actual product name]",
     "trigger_type": "cart_value|category|time_based",
     "trigger_conditions": {{
       "cart_value_operator": "greater_than",
@@ -715,7 +719,7 @@ Return this exact JSON array format:
         if "ai_copy_id" not in processed_rule:
             processed_rule["ai_copy_id"] = None
         
-        # Ensure target_products is populated if empty
+        # STEP 1: Determine target products
         if not processed_rule["target_products"]:
             # Try to match products mentioned in the rule name first
             rule_name_products = self._extract_products_from_rule_name(
@@ -735,6 +739,13 @@ Return this exact JSON array format:
                     processed_rule["trigger_conditions"], 
                     analysis
                 )
+        
+        # STEP 2: Update rule name and description to match selected products
+        if processed_rule["target_products"]:
+            processed_rule = self._update_rule_name_to_match_products(
+                processed_rule, 
+                products
+            )
         
         # Validate trigger_conditions format
         processed_rule["trigger_conditions"] = self._validate_trigger_conditions(
@@ -782,6 +793,59 @@ Return this exact JSON array format:
                 unique_products.append(product_id)
         
         return unique_products[:3]  # Limit to 3 products
+    
+    def _update_rule_name_to_match_products(self, rule: Dict[str, Any], products: List[Dict]) -> Dict[str, Any]:
+        """Update rule name and description to match the selected target products"""
+        if not rule.get("target_products") or not products:
+            return rule
+        
+        # Get the actual product names for the selected products
+        selected_product_names = []
+        for product_id in rule["target_products"]:
+            for product in products:
+                if product.get("id") == product_id:
+                    selected_product_names.append(product.get("title", "Unknown Product"))
+                    break
+        
+        if not selected_product_names:
+            return rule
+        
+        # Create a product-focused rule name
+        if len(selected_product_names) == 1:
+            product_name = selected_product_names[0]
+            # Remove common words that might make the name too long
+            clean_name = self._clean_product_name(product_name)
+            new_rule_name = f"{clean_name} Upsell"
+            new_description = f"Upsell for {product_name}"
+        else:
+            # Multiple products - use a more generic name
+            clean_names = [self._clean_product_name(name) for name in selected_product_names[:2]]
+            new_rule_name = f"{' & '.join(clean_names)} Bundle"
+            new_description = f"Bundle upsell for {', '.join(selected_product_names)}"
+        
+        # Update the rule
+        rule["name"] = new_rule_name
+        rule["description"] = new_description
+        
+        logger.info(f"Updated rule name to match products: '{new_rule_name}' for products: {selected_product_names}")
+        
+        return rule
+    
+    def _clean_product_name(self, product_name: str) -> str:
+        """Clean product name for use in rule names"""
+        # Remove common prefixes/suffixes that make names too long
+        common_words = ["premium", "professional", "advanced", "deluxe", "ultimate", "basic", "standard"]
+        
+        words = product_name.split()
+        cleaned_words = []
+        
+        for word in words:
+            # Keep the word if it's not a common filler word or if it's the only word
+            if word.lower() not in common_words or len(words) == 1:
+                cleaned_words.append(word)
+        
+        # Limit to 3 words to keep names concise
+        return " ".join(cleaned_words[:3])
     
     def _validate_trigger_conditions(self, trigger_type: str, conditions: Dict[str, Any]) -> Dict[str, Any]:
         """Validate and format trigger_conditions to match UpsellEngine schema"""
